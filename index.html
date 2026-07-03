@@ -96,6 +96,12 @@ const DOCCAT = {
 };
 const today = () => new Date().toISOString().slice(0,10);
 const addDays = (d,n) => { const x = new Date(d); x.setDate(x.getDate()+n); return x.toISOString().slice(0,10); };
+// Gamme due au compteur : la machine a dépassé last_done_hours + freq_hours
+const planHoursDue = (p,machines) => {
+  const m = machines.find(x=>x.id===p.machine_id);
+  return !!(p.freq_hours && m && +m.meter_hours >= +p.last_done_hours + +p.freq_hours);
+};
+const partLow = p => +p.min_qty>0 && +p.qty<=+p.min_qty;
 
 /* ------------------------- ROOT + routing ------------------------- */
 function Root() {
@@ -217,6 +223,7 @@ function App({session}) {
   const [interventions,setInterventions] = useState([]);
   const [preventifs,setPreventifs] = useState([]);
   const [docs,setDocs] = useState([]);
+  const [parts,setParts] = useState([]);
   const [view,setView] = useState({name:"dashboard"});
   const [modal,setModal] = useState(null);
   const [error,setError] = useState(null);
@@ -235,13 +242,14 @@ function App({session}) {
 
   const refresh = async () => {
     if (!orgId) return;
-    const [m,i,p,d] = await Promise.all([
+    const [m,i,p,d,pa] = await Promise.all([
       sb.from("machines").select("*").eq("org_id",orgId).order("code"),
       sb.from("interventions").select("*").eq("org_id",orgId).order("reported_at",{ascending:false}),
       sb.from("preventive_plans").select("*").eq("org_id",orgId).order("next_due"),
       sb.from("machine_documents").select("*").eq("org_id",orgId).order("created_at",{ascending:false}),
+      sb.from("parts").select("*").eq("org_id",orgId).order("name"),
     ]);
-    setMachines(m.data||[]); setInterventions(i.data||[]); setPreventifs(p.data||[]); setDocs(d.data||[]);
+    setMachines(m.data||[]); setInterventions(i.data||[]); setPreventifs(p.data||[]); setDocs(d.data||[]); setParts(pa.data||[]);
   };
   useEffect(() => { refresh(); }, [orgId]);
 
@@ -258,6 +266,24 @@ function App({session}) {
     },
     setMachineStatus: async (id,st) => { await sb.from("machines").update({status:st}).eq("id",id); refresh(); },
     setInterventionCause: async (id,cause) => { await sb.from("interventions").update({failure_cause:cause}).eq("id",id); refresh(); },
+    addPart: async f => { await sb.from("parts").insert({org_id:orgId,name:f.name,ref:f.ref||null,location:f.location||null,qty:+f.qty||0,min_qty:+f.min_qty||0,unit_cost:f.unit_cost?+f.unit_cost:null}); refresh(); setModal(null); },
+    adjustPart: async (p,delta) => { await sb.from("parts").update({qty:Math.max(0,+p.qty+delta)}).eq("id",p.id); refresh(); },
+    deletePart: async p => {
+      if (!confirm(`Supprimer la pièce "${p.name}" ?`)) return;
+      await sb.from("parts").delete().eq("id",p.id); refresh();
+    },
+    usePart: async (i,part,qty) => {
+      const cost = part.unit_cost ? Math.round(+part.unit_cost*qty*100)/100 : null;
+      await sb.from("parts").update({qty:Math.max(0,+part.qty-qty)}).eq("id",part.id);
+      await sb.from("interventions").update({parts_used:[...(i.parts_used||[]),{part_id:part.id,ref:part.ref,name:part.name,qty,cost}]}).eq("id",i.id);
+      refresh();
+    },
+    setMeterHours: async (id,hours) => { await sb.from("machines").update({meter_hours:hours}).eq("id",id); refresh(); },
+    saveHourlyRate: async v => {
+      await sb.from("organizations").update({settings:{...(org?.settings||{}),hourly_rate:+v||0}}).eq("id",orgId);
+      const {data:o} = await sb.from("organizations").select("*").order("name");
+      setOrgs(o||[]);
+    },
     fetchComments: async iid => {
       const {data} = await sb.from("intervention_comments").select("*, author:profiles(full_name)").eq("intervention_id",iid).order("created_at");
       return data || [];
@@ -281,9 +307,14 @@ function App({session}) {
       const {data:o} = await sb.from("organizations").select("*").order("name");
       setOrgs(o||[]); setModal(null);
     },
-    addPreventif: async f => { await sb.from("preventive_plans").insert({org_id:orgId,machine_id:f.machine,title:f.title,freq_days:f.freq,next_due:f.next,checklist:(f.checklist||[]).map(s=>({step:s}))}); refresh(); setModal(null); },
+    addPreventif: async f => {
+      const m = machines.find(x=>x.id===f.machine);
+      await sb.from("preventive_plans").insert({org_id:orgId,machine_id:f.machine,title:f.title,freq_days:f.freq,next_due:f.next,checklist:(f.checklist||[]).map(s=>({step:s})),freq_hours:f.freqH?+f.freqH:null,last_done_hours:m?+m.meter_hours:0});
+      refresh(); setModal(null);
+    },
     donePreventif: async (p,steps) => {
-      await sb.from("preventive_plans").update({next_due:addDays(today(),p.freq_days)}).eq("id",p.id);
+      const m = machines.find(x=>x.id===p.machine_id);
+      await sb.from("preventive_plans").update({next_due:addDays(today(),p.freq_days),last_done_hours:m?+m.meter_hours:+p.last_done_hours}).eq("id",p.id);
       const desc = steps?.length ? "Checklist :\n"+steps.map(s=>(s.done?"✓ ":"✗ ")+s.step).join("\n") : null;
       await sb.from("interventions").insert({org_id:orgId,machine_id:p.machine_id,type:"preventive",priority:1,title:p.title,description:desc,status:"done",reported_by:profile.id,started_at:new Date().toISOString(),finished_at:new Date().toISOString()});
       refresh();
@@ -314,20 +345,21 @@ function App({session}) {
     const ouvertes = interventions.filter(i=>i.status!=="done").length;
     const done = interventions.filter(i=>i.started_at && i.finished_at);
     const mttr = done.length ? Math.round(done.reduce((a,i)=>a+(new Date(i.finished_at)-new Date(i.started_at))/60000,0)/done.length) : null;
-    const retard = preventifs.filter(p=>p.active && p.next_due<=today()).length;
+    const retard = preventifs.filter(p=>p.active && (p.next_due<=today() || planHoursDue(p,machines))).length;
+    const lowStock = parts.filter(partLow).length;
     const d90 = new Date(Date.now()-90*864e5).toISOString();
     const counts = {};
     interventions.filter(i=>i.type==="curative" && i.reported_at>d90).forEach(i=>{counts[i.machine_id]=(counts[i.machine_id]||0)+1;});
     const chroniques = Object.entries(counts).filter(([,n])=>n>=3).map(([mid,n])=>({m:machines.find(x=>x.id===mid),n}));
-    return {pannes,ouvertes,mttr,retard,chroniques};
-  }, [machines,interventions,preventifs]);
+    return {pannes,ouvertes,mttr,retard,chroniques,lowStock};
+  }, [machines,interventions,preventifs,parts]);
 
   const machineName = id => machines.find(m=>m.id===id)?.name || "?";
 
   if (error) return <Center><div style={{textAlign:"center"}}><div style={{color:"var(--alarm)",font:"600 14px system-ui",marginBottom:16}}>{error}</div><button className="btn" onClick={()=>sb.auth.signOut()}>Se déconnecter</button></div></Center>;
   if (!profile || !orgId) return <Center>Chargement…</Center>;
 
-  const NAV = [["dashboard","Tableau de bord"],["parc","Parc machines"],["interventions","Interventions"],["preventif","Préventif"],["analyse","Analyse"],...(isSuper?[["admin","Admin clients"]]:[])];
+  const NAV = [["dashboard","Tableau de bord"],["parc","Parc machines"],["interventions","Interventions"],["preventif","Préventif"],["pieces","Pièces détachées"],["analyse","Analyse"],...(isSuper?[["admin","Admin clients"]]:[])];
 
   return (
     <div style={{display:"flex",minHeight:"100vh"}}>
@@ -364,14 +396,15 @@ function App({session}) {
 
         {view.name==="dashboard" && <Dashboard machines={machines} interventions={interventions} kpi={kpi} machineName={machineName} db={db} setView={setView}/>}
         {view.name==="parc" && <Parc machines={machines} setModal={setModal} setView={setView}/>}
-        {view.name==="machine" && <MachineDetail machine={machines.find(m=>m.id===view.id)} docs={docs.filter(d=>d.machine_id===view.id)} interventions={interventions.filter(i=>i.machine_id===view.id)} db={db} back={()=>setView({name:"parc"})}/>}
+        {view.name==="machine" && <MachineDetail machine={machines.find(m=>m.id===view.id)} docs={docs.filter(d=>d.machine_id===view.id)} interventions={interventions.filter(i=>i.machine_id===view.id)} parts={parts} db={db} back={()=>setView({name:"parc"})}/>}
         {view.name==="interventions" && <>
           <Toolbar><H2>Interventions</H2><button className="btn" onClick={()=>setModal("intervention")}>+ Déclarer</button></Toolbar>
-          {interventions.map(i=><IRow key={i.id} i={i} machineName={machineName} db={db} full/>)}
+          {interventions.map(i=><IRow key={i.id} i={i} machineName={machineName} db={db} full parts={parts}/>)}
           {interventions.length===0 && <Empty>Aucune intervention déclarée.</Empty>}
         </>}
-        {view.name==="preventif" && <Preventif preventifs={preventifs} machineName={machineName} db={db} setModal={setModal}/>}
-        {view.name==="analyse" && <Analyse machines={machines} interventions={interventions}/>}
+        {view.name==="preventif" && <Preventif preventifs={preventifs} machines={machines} machineName={machineName} db={db} setModal={setModal}/>}
+        {view.name==="pieces" && <Pieces parts={parts} setModal={setModal} db={db}/>}
+        {view.name==="analyse" && <Analyse machines={machines} interventions={interventions} org={org} db={db}/>}
         {view.name==="admin" && isSuper && <>
           <Toolbar><H2>Clients ({orgs.length})</H2><button className="btn" onClick={()=>setModal("org")}>+ Nouveau client</button></Toolbar>
           {orgs.map(o=>(
@@ -387,6 +420,7 @@ function App({session}) {
       {modal==="intervention" && <InterventionModal machines={machines} onClose={()=>setModal(null)} onSave={db.addIntervention}/>}
       {modal==="org" && <OrgModal onClose={()=>setModal(null)} onSave={db.addOrg}/>}
       {modal==="preventif" && <PreventifModal machines={machines} onClose={()=>setModal(null)} onSave={db.addPreventif}/>}
+      {modal==="part" && <PartModal onClose={()=>setModal(null)} onSave={db.addPart}/>}
     </div>
   );
 }
@@ -408,6 +442,7 @@ function Dashboard({machines,interventions,kpi,machineName,db,setView}) {
       <Kpi label="Interventions ouvertes" value={kpi.ouvertes}/>
       <Kpi label="MTTR moyen" value={kpi.mttr?kpi.mttr+" min":"—"}/>
       <Kpi label="Préventifs en retard" value={kpi.retard} alert={kpi.retard>0}/>
+      <Kpi label="Pièces en stock bas" value={kpi.lowStock} alert={kpi.lowStock>0}/>
     </div>
     {kpi.chroniques.length>0 && (
       <div style={{background:"#FDECEA",border:"1px solid var(--alarm)",color:"var(--alarm)",padding:"12px 16px",margin:"16px 0",font:"600 13px system-ui"}}>
@@ -446,7 +481,7 @@ function Parc({machines,setModal,setView}) {
 }
 
 /* ------------------------- FICHE MACHINE ------------------------- */
-function MachineDetail({machine,docs,interventions,db,back}) {
+function MachineDetail({machine,docs,interventions,parts,db,back}) {
   const [tab,setTab] = useState("infos");
   if (!machine) return null;
   return <>
@@ -466,14 +501,28 @@ function MachineDetail({machine,docs,interventions,db,back}) {
         <button key={k} className={"tab"+(tab===k?" active":"")} onClick={()=>setTab(k)}>{l}</button>
       ))}
     </div>
-    {tab==="infos" && <Specs machine={machine} db={db}/>}
+    {tab==="infos" && <><MeterBox machine={machine} db={db}/><Specs machine={machine} db={db}/></>}
     {tab==="docs" && <Docs machine={machine} docs={docs} db={db}/>}
     {tab==="histo" && <>
-      {interventions.map(i=><IRow key={i.id} i={i} machineName={()=>""} db={db} full/>)}
+      {interventions.map(i=><IRow key={i.id} i={i} machineName={()=>""} db={db} full parts={parts}/>)}
       {interventions.length===0 && <Empty>Aucune intervention sur cette machine.</Empty>}
     </>}
     {tab==="qr" && <QRTab machine={machine}/>}
   </>;
+}
+
+function MeterBox({machine,db}) {
+  const [h,setH] = useState(machine.meter_hours ?? 0);
+  useEffect(() => { setH(machine.meter_hours ?? 0); }, [machine.id, machine.meter_hours]);
+  return (
+    <div className="card" style={{maxWidth:560,marginBottom:12,display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
+      <b style={{font:"700 12px system-ui",textTransform:"uppercase"}}>Compteur horaire :</b>
+      <input type="number" min="0" value={h} onChange={e=>setH(e.target.value)} style={{width:110}}/>
+      <span style={{font:"600 13px system-ui"}}>h</span>
+      <button className="btn sm" disabled={+h===+(machine.meter_hours??0)} onClick={()=>db.setMeterHours(machine.id,+h||0)}>Enregistrer</button>
+      <span style={{font:"500 11px system-ui",color:"var(--muted)"}}>Relevé manuel — déclenchera les gammes « au compteur ». Automatique avec le futur plan Connect.</span>
+    </div>
+  );
 }
 
 function Specs({machine,db}) {
@@ -572,24 +621,28 @@ function QRTab({machine}) {
 }
 
 /* ------------------------- PRÉVENTIF ------------------------- */
-function Preventif({preventifs,machineName,db,setModal}) {
+function Preventif({preventifs,machines,machineName,db,setModal}) {
   const [checkFor,setCheckFor] = useState(null);
   return <>
     <Toolbar><H2>Gammes préventives</H2><button className="btn" onClick={()=>setModal("preventif")}>+ Nouvelle gamme</button></Toolbar>
     {preventifs.map(p=>{
-      const late = p.active && p.next_due<=today();
+      const hDue = planHoursDue(p,machines);
+      const late = p.active && (p.next_due<=today() || hDue);
       const nbSteps = p.checklist?.length || 0;
+      const m = machines.find(x=>x.id===p.machine_id);
       return (
         <Row key={p.id} style={{borderLeft:`4px solid ${late?"var(--alarm)":"var(--run)"}`}}>
           <div style={{flex:1}}>
             <b>{p.title}</b>
             <div style={{font:"500 12px system-ui",color:"var(--muted)",marginTop:2}}>
-              {machineName(p.machine_id)} · tous les {p.freq_days} j{nbSteps>0 && ` · ☑ ${nbSteps} points`}
+              {machineName(p.machine_id)} · tous les {p.freq_days} j
+              {p.freq_hours ? ` ou ${+p.freq_hours} h (${m?Math.max(0,+m.meter_hours-+p.last_done_hours):0}/${+p.freq_hours} h)` : ""}
+              {nbSteps>0 && ` · ☑ ${nbSteps} points`}
             </div>
           </div>
           <div style={{textAlign:"right"}}>
             <div style={{fontWeight:700,color:late?"var(--alarm)":"var(--ink)"}}>{p.next_due}</div>
-            <div style={{font:"500 12px system-ui",color:"var(--muted)"}}>{late?"EN RETARD":"planifié"}</div>
+            <div style={{font:"500 12px system-ui",color:"var(--muted)"}}>{late?(hDue?"COMPTEUR ATTEINT":"EN RETARD"):"planifié"}</div>
           </div>
           <button className="btn sm" onClick={()=>nbSteps>0 ? setCheckFor(p) : db.donePreventif(p)}>✓ Fait</button>
         </Row>
@@ -623,9 +676,68 @@ function ChecklistModal({plan,onClose,onValidate}) {
   );
 }
 
+/* ------------------------- PIÈCES DÉTACHÉES ------------------------- */
+function Pieces({parts,setModal,db}) {
+  return <>
+    <Toolbar><H2>Pièces détachées ({parts.length})</H2><button className="btn" onClick={()=>setModal("part")}>+ Ajouter</button></Toolbar>
+    {parts.map(p=>(
+      <Row key={p.id} style={{borderLeft:`4px solid ${partLow(p)?"var(--alarm)":"var(--run)"}`}}>
+        <div style={{flex:1}}>
+          <b>{p.name}</b>{p.ref && <span style={{font:"700 12px ui-monospace,monospace",color:"var(--muted)"}}> · {p.ref}</span>}
+          <div style={{font:"500 12px system-ui",color:"var(--muted)",marginTop:2}}>
+            {p.location || "Emplacement non renseigné"}{p.unit_cost ? ` · ${p.unit_cost} € HT` : ""}
+          </div>
+        </div>
+        {partLow(p) && <span style={{color:"#fff",font:"700 10px system-ui",textTransform:"uppercase",padding:"5px 10px",background:"var(--alarm)"}}>Stock bas</span>}
+        <div style={{display:"flex",alignItems:"center",gap:6}}>
+          <button className="btn ghost sm" disabled={+p.qty<=0} onClick={()=>db.adjustPart(p,-1)}>−</button>
+          <b style={{minWidth:56,textAlign:"center"}}>{+p.qty}{+p.min_qty>0 && <span style={{font:"500 11px system-ui",color:"var(--muted)"}}> / min {+p.min_qty}</span>}</b>
+          <button className="btn ghost sm" onClick={()=>db.adjustPart(p,1)}>+</button>
+        </div>
+        <button className="btn ghost sm" onClick={()=>db.deletePart(p)}>✕</button>
+      </Row>
+    ))}
+    {parts.length===0 && <Empty>Aucune pièce en stock. Ajoutez vos consommables courants (roulements, courroies, filtres, fusibles…) avec le bouton ci-dessus.</Empty>}
+  </>;
+}
+
+function PartModal({onClose,onSave}) {
+  const [f,setF] = useState({name:"",ref:"",location:"",qty:1,min_qty:0,unit_cost:""});
+  return (
+    <Modal title="Ajouter une pièce" onClose={onClose}>
+      <input placeholder="Nom (ex: Roulement broche)" value={f.name} onChange={e=>setF({...f,name:e.target.value})} style={{marginBottom:10}}/>
+      <input placeholder="Référence (ex: 6205-2RS, optionnel)" value={f.ref} onChange={e=>setF({...f,ref:e.target.value})} style={{marginBottom:10}}/>
+      <input placeholder="Emplacement (ex: Armoire A3, optionnel)" value={f.location} onChange={e=>setF({...f,location:e.target.value})} style={{marginBottom:10}}/>
+      <div style={{display:"flex",gap:8,marginBottom:10}}>
+        <div style={{flex:1}}>
+          <label style={{font:"500 12px system-ui",color:"var(--muted)"}}>Quantité en stock</label>
+          <input type="number" min="0" value={f.qty} onChange={e=>setF({...f,qty:e.target.value})}/>
+        </div>
+        <div style={{flex:1}}>
+          <label style={{font:"500 12px system-ui",color:"var(--muted)"}}>Stock mini (alerte)</label>
+          <input type="number" min="0" value={f.min_qty} onChange={e=>setF({...f,min_qty:e.target.value})}/>
+        </div>
+        <div style={{flex:1}}>
+          <label style={{font:"500 12px system-ui",color:"var(--muted)"}}>Coût unit. € HT</label>
+          <input type="number" min="0" step="0.01" value={f.unit_cost} onChange={e=>setF({...f,unit_cost:e.target.value})}/>
+        </div>
+      </div>
+      <button className="btn" disabled={!f.name} onClick={()=>onSave(f)} style={{width:"100%"}}>Enregistrer</button>
+    </Modal>
+  );
+}
+
 /* ------------------------- ANALYSE ------------------------- */
-function Analyse({machines,interventions}) {
+function Analyse({machines,interventions,org,db}) {
   const doneWithTime = interventions.filter(i=>i.started_at&&i.finished_at);
+  const [rate,setRate] = useState(org?.settings?.hourly_rate ?? 45);
+  // Coût par machine = pièces consommées + heures d'intervention × taux horaire MO
+  const costByMachine = machines.map(m=>{
+    const its = interventions.filter(i=>i.machine_id===m.id);
+    const partsCost = its.reduce((a,i)=>a+(i.parts_used||[]).reduce((s,u)=>s+(+u.cost||0),0),0);
+    const hours = its.filter(i=>i.started_at&&i.finished_at).reduce((a,i)=>a+(new Date(i.finished_at)-new Date(i.started_at))/3600000,0);
+    return {label:m.code||m.name.slice(0,10), value:Math.round(partsCost + hours*(+rate||0))};
+  }).filter(x=>x.value>0).sort((a,b)=>b.value-a.value).slice(0,8);
   // Temps d'arrêt par machine (min)
   const downtimeByMachine = machines.map(m=>({
     label: m.code||m.name.slice(0,10),
@@ -656,6 +768,14 @@ function Analyse({machines,interventions}) {
         {sansCause} panne{sansCause>1?"s":""} sans cause renseignée — non comptée{sansCause>1?"s":""} dans le graphique.
       </div>
     )}
+    <H2>Coût de maintenance par machine (€)</H2>
+    <div className="card" style={{maxWidth:560,display:"flex",gap:10,alignItems:"center",flexWrap:"wrap",marginBottom:12}}>
+      <b style={{font:"700 12px system-ui",textTransform:"uppercase"}}>Taux horaire main d'œuvre :</b>
+      <input type="number" min="0" value={rate} onChange={e=>setRate(e.target.value)} style={{width:90}}/>
+      <span style={{font:"600 13px system-ui"}}>€/h</span>
+      <button className="btn sm" disabled={+rate===+(org?.settings?.hourly_rate??45)} onClick={()=>db.saveHourlyRate(rate)}>Enregistrer</button>
+    </div>
+    <BarChart data={costByMachine} color="var(--ink)" empty="Pas encore de coûts — saisissez les pièces utilisées sur les interventions et clôturez-les pour mesurer le temps passé."/>
     <H2>Temps d'arrêt par machine (minutes)</H2>
     <BarChart data={downtimeByMachine} color="var(--alarm)" empty="Pas encore de temps d'arrêt mesuré — passez des interventions En cours → Clôturée."/>
     <H2>Interventions par mois</H2>
@@ -757,7 +877,7 @@ function Kpi({label,value,alert}) {
   );
 }
 
-function IRow({i,machineName,db,full}) {
+function IRow({i,machineName,db,full,parts}) {
   const [open,setOpen] = useState(false);
   const prioC = i.priority===3?"var(--alarm)":i.priority===2?"var(--warn)":"var(--muted)";
   const photos = i.photos || [];
@@ -786,15 +906,17 @@ function IRow({i,machineName,db,full}) {
         )}
         {full && <button className="btn ghost sm" title="Photos et commentaires" onClick={()=>setOpen(!open)}>{open?"▲":"▼ Détails"}</button>}
       </Row>
-      {open && full && <InterventionDetail i={i} db={db}/>}
+      {open && full && <InterventionDetail i={i} db={db} parts={parts}/>}
     </div>
   );
 }
 
-function InterventionDetail({i,db}) {
+function InterventionDetail({i,db,parts}) {
   const [comments,setComments] = useState(null);
   const [txt,setTxt] = useState("");
   const [busy,setBusy] = useState(false);
+  const [partId,setPartId] = useState(null);
+  const [partQty,setPartQty] = useState(1);
   const load = () => db.fetchComments(i.id).then(setComments);
   useEffect(() => { load(); }, [i.id]);
   const send = async () => {
@@ -815,6 +937,28 @@ function InterventionDetail({i,db}) {
                  onChange={e=>{const f=e.target.files[0]; if(f){db.uploadPhoto(i,f); e.target.value="";}}}/>
         </label>
       </div>
+      <div style={{font:"700 11px system-ui",textTransform:"uppercase",letterSpacing:".06em",color:"var(--muted)",marginBottom:6}}>Pièces utilisées</div>
+      {(i.parts_used||[]).map((u,k)=>(
+        <div key={k} style={{font:"600 13px system-ui",padding:"3px 0"}}>
+          <span style={{color:"var(--accent)"}}>▮</span> {u.qty}× {u.name}{u.ref?` (${u.ref})`:""}{u.cost?` · ${u.cost} €`:""}
+        </div>
+      ))}
+      {(parts||[]).length>0 ? (
+        <div style={{display:"flex",gap:8,alignItems:"center",margin:"6px 0 14px",flexWrap:"wrap"}}>
+          <Dropdown width={230} value={partId} placeholder="Choisir une pièce…"
+                    options={parts.map(p=>({value:p.id,label:p.name+(p.ref?` (${p.ref})`:""),sub:`stock : ${+p.qty}`}))}
+                    onChange={setPartId}/>
+          <input type="number" min="1" value={partQty} onChange={e=>setPartQty(Math.max(1,+e.target.value||1))} style={{width:70}}/>
+          <button className="btn sm" disabled={!partId}
+                  onClick={()=>{const p=parts.find(x=>x.id===partId); if(p){db.usePart(i,p,partQty); setPartId(null); setPartQty(1);}}}>
+            Utiliser
+          </button>
+        </div>
+      ) : (
+        <div style={{font:"500 12px system-ui",color:"var(--muted)",marginBottom:14}}>
+          {(i.parts_used||[]).length===0 && "Aucune pièce — créez votre stock dans « Pièces détachées »."}
+        </div>
+      )}
       <div style={{font:"700 11px system-ui",textTransform:"uppercase",letterSpacing:".06em",color:"var(--muted)",marginBottom:6}}>Commentaires</div>
       {comments === null && <div style={{font:"500 12px system-ui",color:"var(--muted)"}}>Chargement…</div>}
       {comments?.map(c=>(
@@ -882,7 +1026,7 @@ function InterventionModal({machines,onClose,onSave}) {
 }
 
 function PreventifModal({machines,onClose,onSave}) {
-  const [f,setF] = useState({machine:machines[0]?.id,title:"",freq:30,next:today(),checklist:[]});
+  const [f,setF] = useState({machine:machines[0]?.id,title:"",freq:30,freqH:"",next:today(),checklist:[]});
   const [step,setStep] = useState("");
   const addStep = () => { if(!step.trim()) return; setF({...f,checklist:[...f.checklist,step.trim()]}); setStep(""); };
   return (
@@ -894,6 +1038,8 @@ function PreventifModal({machines,onClose,onSave}) {
       <input placeholder="Titre (ex: Contrôle niveaux + graissage)" value={f.title} onChange={e=>setF({...f,title:e.target.value})} style={{marginBottom:10}}/>
       <label style={{font:"500 12px system-ui",color:"var(--muted)"}}>Périodicité (jours)</label>
       <input type="number" min="1" value={f.freq} onChange={e=>setF({...f,freq:+e.target.value})} style={{marginBottom:10}}/>
+      <label style={{font:"500 12px system-ui",color:"var(--muted)"}}>Ou au compteur (heures machine, optionnel — ex: 500)</label>
+      <input type="number" min="1" placeholder="—" value={f.freqH} onChange={e=>setF({...f,freqH:e.target.value})} style={{marginBottom:10}}/>
       <label style={{font:"500 12px system-ui",color:"var(--muted)"}}>Première échéance</label>
       <input type="date" value={f.next} onChange={e=>setF({...f,next:e.target.value})} style={{marginBottom:10}}/>
       <label style={{font:"500 12px system-ui",color:"var(--muted)"}}>Checklist (optionnel) — points que le technicien cochera</label>

@@ -15,16 +15,17 @@ plus. En cas de doute : moins de clics, moins de champs, plus gros boutons.
 - [x] v0.4 : checklists préventives (validation partielle tracée), photos interventions,
       cause de panne + Pareto, fil de commentaires (patch-v04.sql exécuté)
 
-## 🔨 Vague 2 — fondamentaux (en cours)
+## ✅ Vague 2 — fondamentaux (v0.5, patch-v05.sql exécuté)
 
-- [ ] **Stock de pièces détachées** : liste des pièces (réf, nom, emplacement, stock,
-      stock mini, coût unitaire), alerte stock bas sur le dashboard, consommation
-      saisie à l'intervention (décrémente le stock, historisée dans parts_used)
-- [ ] **Préventif au compteur d'heures** : compteur d'heures par machine (saisie
-      manuelle, prépare le plan Connect), gammes déclenchables par heures en plus
-      du calendaire ("toutes les 500 h")
-- [ ] **Coût par machine** : pièces consommées + temps d'intervention × taux horaire
-      (taux dans organizations.settings) — affiché sur la fiche machine et en Analyse
+- [x] **Stock de pièces détachées** : page Pièces (réf, nom, emplacement, stock ± ,
+      stock mini, coût unitaire), KPI stock bas sur le dashboard, consommation
+      saisie dans le détail d'intervention (décrémente le stock, historisée dans
+      parts_used)
+- [x] **Préventif au compteur d'heures** : compteur manuel sur la fiche machine
+      (onglet Infos), gammes "tous les X j ou Y h" avec progression affichée et
+      statut COMPTEUR ATTEINT
+- [x] **Coût par machine** : pièces consommées + heures d'intervention × taux horaire
+      (réglable en Analyse, persisté dans organizations.settings.hourly_rate)
 
 ## 🚀 Lot A — jamais vu, gratuit, rapide (aucune IA)
 
