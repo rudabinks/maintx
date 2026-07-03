@@ -32,6 +32,16 @@
   @media (prefers-reduced-motion:reduce){.lamp.blink{animation:none}}
   input,select,textarea{padding:10px 12px;border:1.5px solid #D5D8DC;font:500 14px system-ui;width:100%;background:#fff}
   select.inline{width:auto;font:600 12px system-ui;padding:7px 10px}
+  .dd-btn{display:flex;align-items:center;gap:9px;width:100%;background:#fff;border:1.5px solid #D5D8DC;padding:9px 12px;font:600 13px system-ui;color:var(--ink);cursor:pointer;text-align:left}
+  .dd-btn:hover{border-color:var(--ink)}
+  .dd-btn:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+  .dd-chev{margin-left:auto;color:var(--accent);font-size:11px;transition:transform .15s}
+  .dd-menu{position:absolute;top:calc(100% + 4px);min-width:100%;background:#fff;border:1.5px solid var(--ink);box-shadow:0 10px 28px rgba(27,29,33,.22);z-index:60;max-height:300px;overflow:auto}
+  .dd-opt{display:flex;align-items:center;gap:10px;width:100%;padding:10px 12px;border:0;border-left:3px solid transparent;background:transparent;font:600 13px system-ui;color:var(--ink);cursor:pointer;text-align:left}
+  .dd-opt:hover{background:rgba(255,196,0,.14);border-left-color:var(--accent)}
+  .dd-opt.sel{border-left-color:var(--accent);font-weight:800}
+  .dd-dot{width:9px;height:18px;border-radius:5px;flex:none;box-shadow:inset 0 -3px 4px rgba(0,0,0,.18),0 0 0 1.5px rgba(0,0,0,.08)}
+  .dd-sub{display:block;font:500 11px system-ui;color:var(--muted);margin-top:1px}
   .tab{border:0;background:transparent;padding:10px 14px;font:700 12px system-ui;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);cursor:pointer;border-bottom:3px solid transparent}
   .tab.active{color:var(--ink);border-bottom-color:var(--accent)}
   .doccat{font:700 10px system-ui;text-transform:uppercase;letter-spacing:.06em;padding:3px 8px;color:#fff}
@@ -58,7 +68,12 @@ const STATUS = {
   alarm:{label:"En panne",color:"var(--alarm)"},
 };
 const ITYPE = {curative:"Curatif",preventive:"Préventif",improvement:"Amélioratif"};
-const ISTATUS = {open:"Ouverte",in_progress:"En cours",waiting_parts:"Attente pièces",done:"Clôturée"};
+const ISTATUS = {
+  open:{label:"Ouverte",color:"var(--alarm)"},
+  in_progress:{label:"En cours",color:"var(--warn)"},
+  waiting_parts:{label:"Attente pièces",color:"var(--muted)"},
+  done:{label:"Clôturée",color:"var(--run)"},
+};
 const CRIT = {
   1:{label:"Secondaire",desc:"Un arrêt ne bloque pas la production",color:"var(--muted)"},
   2:{label:"Importante",desc:"Un arrêt gêne la production mais reste contournable",color:"var(--warn)"},
@@ -311,9 +326,12 @@ function App({session}) {
             <h1 style={{fontFamily:"var(--display)",fontSize:26,margin:0,textTransform:"uppercase"}}>{org?.name}</h1>
           </div>
           {isSuper && orgs.length>1 && (
-            <select className="inline" value={orgId} onChange={e=>{setOrgId(e.target.value);setView({name:"dashboard"});}} style={{width:"auto"}}>
-              {orgs.map(o=><option key={o.id} value={o.id}>{o.name}</option>)}
-            </select>
+            <div>
+              <div style={{font:"700 10px system-ui",textTransform:"uppercase",letterSpacing:".12em",color:"var(--muted)",marginBottom:4,textAlign:"right"}}>Client</div>
+              <Dropdown width={230} align="right" value={orgId}
+                        options={orgs.map(o=>({value:o.id,label:o.name,sub:"plan "+(o.plan||"standard")}))}
+                        onChange={id=>{setOrgId(id);setView({name:"dashboard"});}}/>
+            </div>
           )}
         </header>
 
@@ -412,9 +430,9 @@ function MachineDetail({machine,docs,interventions,db,back}) {
         <div style={{font:"700 11px ui-monospace,monospace",color:"var(--muted)",textTransform:"uppercase"}}>{machine.code} · {machine.family}</div>
         <h2 style={{fontFamily:"var(--display)",fontSize:22,margin:0,textTransform:"uppercase"}}>{machine.name}</h2>
       </div>
-      <select className="inline" style={{marginLeft:"auto"}} value={machine.status} onChange={e=>db.setMachineStatus(machine.id,e.target.value)}>
-        {Object.entries(STATUS).map(([k,v])=><option key={k} value={k}>{v.label}</option>)}
-      </select>
+      <Dropdown width={195} align="right" style={{marginLeft:"auto"}} value={machine.status}
+                options={Object.entries(STATUS).map(([k,v])=>({value:k,label:v.label,color:v.color}))}
+                onChange={st=>db.setMachineStatus(machine.id,st)}/>
     </div>
     <div style={{borderBottom:"1.5px solid #D5D8DC",marginBottom:16}}>
       {[["infos","Infos & specs"],["docs",`Documents (${docs.length})`],["histo",`Historique (${interventions.length})`],["qr","QR code"]].map(([k,l])=>(
@@ -464,9 +482,9 @@ function Docs({machine,docs,db}) {
   return <>
     <div className="card" style={{display:"flex",gap:10,alignItems:"center",marginBottom:14,flexWrap:"wrap"}}>
       <b style={{font:"700 12px system-ui",textTransform:"uppercase"}}>Ajouter un document :</b>
-      <select className="inline" value={cat} onChange={e=>setCat(e.target.value)}>
-        {Object.entries(DOCCAT).map(([k,v])=><option key={k} value={k}>{v.label}</option>)}
-      </select>
+      <Dropdown width={175} value={cat}
+                options={Object.entries(DOCCAT).map(([k,v])=>({value:k,label:v.label,color:v.color}))}
+                onChange={setCat}/>
       <input type="file" ref={fileRef} style={{width:"auto",border:0,padding:0}}
              onChange={e=>{const f=e.target.files[0]; if(f){db.uploadDoc(machine.id,f,cat); e.target.value="";}}}/>
       <span style={{font:"500 11px system-ui",color:"var(--muted)"}}>PDF, schémas, notices… (max 50 Mo)</span>
@@ -618,6 +636,44 @@ function BarChart({data,color,empty}) {
 }
 
 /* ------------------- Petits composants ------------------- */
+function Dropdown({value,options,onChange,width,align="left",style}) {
+  const [open,setOpen] = useState(false);
+  const ref = useRef();
+  useEffect(() => {
+    if (!open) return;
+    const close = e => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    const esc = e => { if (e.key === "Escape") setOpen(false); };
+    document.addEventListener("mousedown", close);
+    document.addEventListener("keydown", esc);
+    return () => { document.removeEventListener("mousedown", close); document.removeEventListener("keydown", esc); };
+  }, [open]);
+  const sel = options.find(o=>o.value===value);
+  return (
+    <div ref={ref} style={{position:"relative",width,...style}}>
+      <button type="button" className="dd-btn" onClick={()=>setOpen(!open)}>
+        {sel?.color && <span className="dd-dot" style={{background:sel.color}}/>}
+        <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{sel?.label ?? "Sélectionner…"}</span>
+        <span className="dd-chev" style={open?{transform:"rotate(180deg)"}:null}>▼</span>
+      </button>
+      {open && (
+        <div className="dd-menu" style={align==="right"?{right:0}:{left:0}}>
+          {options.map(o=>(
+            <button type="button" key={o.value} className={"dd-opt"+(o.value===value?" sel":"")}
+                    onClick={()=>{onChange(o.value);setOpen(false);}}>
+              {o.color && <span className="dd-dot" style={{background:o.color}}/>}
+              <span style={{flex:1}}>
+                {o.label}
+                {o.sub && <span className="dd-sub">{o.sub}</span>}
+              </span>
+              {o.value===value && <span style={{color:"var(--accent)",fontWeight:800}}>✔</span>}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 const H2 = ({children}) => <h2 style={{fontFamily:"var(--display)",fontSize:15,textTransform:"uppercase",letterSpacing:".05em",margin:"28px 0 12px"}}>{children}</h2>;
 const Toolbar = ({children}) => <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>{children}</div>;
 const Empty = ({children}) => <div style={{font:"500 13px system-ui",color:"var(--muted)",padding:"20px 0"}}>{children}</div>;
@@ -643,11 +699,11 @@ function IRow({i,machineName,db,full}) {
         </div>
       </div>
       {full ? (
-        <select className="inline" value={i.status} onChange={e=>db.setInterventionStatus(i.id,e.target.value)}>
-          {Object.entries(ISTATUS).map(([k,v])=><option key={k} value={k}>{v}</option>)}
-        </select>
+        <Dropdown width={170} align="right" value={i.status}
+                  options={Object.entries(ISTATUS).map(([k,v])=>({value:k,label:v.label,color:v.color}))}
+                  onChange={st=>db.setInterventionStatus(i.id,st)}/>
       ) : (
-        <span style={{color:"#fff",font:"700 10px system-ui",textTransform:"uppercase",padding:"5px 10px",background:i.status==="done"?"var(--run)":"var(--ink)"}}>{ISTATUS[i.status]}</span>
+        <span style={{color:"#fff",font:"700 10px system-ui",textTransform:"uppercase",padding:"5px 10px",background:i.status==="done"?"var(--run)":"var(--ink)"}}>{ISTATUS[i.status].label}</span>
       )}
     </Row>
   );
@@ -684,12 +740,14 @@ function InterventionModal({machines,onClose,onSave}) {
   const [f,setF] = useState({machine:machines[0]?.id,type:"curative",prio:2,title:""});
   return (
     <Modal title="Déclarer une intervention" onClose={onClose}>
-      <select value={f.machine} onChange={e=>setF({...f,machine:e.target.value})} style={{marginBottom:10}}>
-        {machines.map(m=><option key={m.id} value={m.id}>{m.code} — {m.name}</option>)}
-      </select>
-      <select value={f.type} onChange={e=>setF({...f,type:e.target.value})} style={{marginBottom:10}}>
-        {Object.entries(ITYPE).map(([k,v])=><option key={k} value={k}>{v}</option>)}
-      </select>
+      <label style={{font:"500 12px system-ui",color:"var(--muted)"}}>Machine</label>
+      <Dropdown style={{marginBottom:10}} value={f.machine}
+                options={machines.map(m=>({value:m.id,label:(m.code?m.code+" — ":"")+m.name,sub:m.family}))}
+                onChange={v=>setF({...f,machine:v})}/>
+      <label style={{font:"500 12px system-ui",color:"var(--muted)"}}>Type d'intervention</label>
+      <Dropdown style={{marginBottom:10}} value={f.type}
+                options={Object.entries(ITYPE).map(([k,v])=>({value:k,label:v}))}
+                onChange={v=>setF({...f,type:v})}/>
       <input placeholder="Description du problème" value={f.title} onChange={e=>setF({...f,title:e.target.value})} style={{marginBottom:10}}/>
       <label style={{font:"500 12px system-ui",color:"var(--muted)"}}>Priorité : {f.prio}/3</label>
       <input type="range" min="1" max="3" value={f.prio} onChange={e=>setF({...f,prio:+e.target.value})} style={{border:0,padding:0}}/>
@@ -702,9 +760,10 @@ function PreventifModal({machines,onClose,onSave}) {
   const [f,setF] = useState({machine:machines[0]?.id,title:"",freq:30,next:today()});
   return (
     <Modal title="Nouvelle gamme préventive" onClose={onClose}>
-      <select value={f.machine} onChange={e=>setF({...f,machine:e.target.value})} style={{marginBottom:10}}>
-        {machines.map(m=><option key={m.id} value={m.id}>{m.code} — {m.name}</option>)}
-      </select>
+      <label style={{font:"500 12px system-ui",color:"var(--muted)"}}>Machine</label>
+      <Dropdown style={{marginBottom:10}} value={f.machine}
+                options={machines.map(m=>({value:m.id,label:(m.code?m.code+" — ":"")+m.name,sub:m.family}))}
+                onChange={v=>setF({...f,machine:v})}/>
       <input placeholder="Titre (ex: Contrôle niveaux + graissage)" value={f.title} onChange={e=>setF({...f,title:e.target.value})} style={{marginBottom:10}}/>
       <label style={{font:"500 12px system-ui",color:"var(--muted)"}}>Périodicité (jours)</label>
       <input type="number" min="1" value={f.freq} onChange={e=>setF({...f,freq:+e.target.value})} style={{marginBottom:10}}/>
