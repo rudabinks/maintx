@@ -34,11 +34,12 @@ plus. En cas de doute : moins de clics, moins de champs, plus gros boutons.
 - [ ] **Statut "dégradé autorisé"** (MEL aviation) : machine qui tourne sous conditions
       affichées + date limite de réparation + compte à rebours + escalade si dépassée.
       Philosophie du shunt assumé et tracé
-- [ ] **Fil d'activité unifié par machine** : pannes, statuts, photos, docs, commentaires
-      dans un seul fil chronologique + heatmap 12 mois (1 carré/jour, rouge = panne)
-- [ ] **Score de forme machine 0-100** (façon Whoop, sans capteurs) : retard préventif,
-      fréquence pannes récentes, MTTR vs historique, récurrence cause Pareto, âge.
-      Jauge couleur + explication en langage simple
+- [x] **Fil d'activité unifié par machine** : onglet Activité (interventions, clôtures,
+      docs, commentaires dans un fil chronologique) + heatmap 12 mois (1 carré/jour,
+      rouge = panne)
+- [x] **Score de forme machine 0-100** (computeHealth, sans capteurs) : pannes 30/90 j,
+      préventifs en retard, cause récurrente ×3, panne en cours. Jauge + raisons en
+      langage simple (onglet Activité) + score sur les cartes du Parc
 
 ## 🔁 Lot B — rituels & fidélisation
 

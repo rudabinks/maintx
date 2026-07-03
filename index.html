@@ -103,6 +103,28 @@ const planHoursDue = (p,machines) => {
 };
 const partLow = p => +p.min_qty>0 && +p.qty<=+p.min_qty;
 
+// Score de forme machine 0-100 (heuristique sans capteurs, façon Whoop)
+function computeHealth(machine, its, plans) {
+  const reasons = [];
+  let score = 100;
+  const now = Date.now();
+  const cur30 = its.filter(i=>i.type==="curative" && now-new Date(i.reported_at)<30*864e5).length;
+  const cur90 = its.filter(i=>i.type==="curative" && now-new Date(i.reported_at)<90*864e5).length;
+  if (cur30>0) { const d=Math.min(36,cur30*12); score-=d; reasons.push(`${cur30} panne${cur30>1?"s":""} sur 30 jours (−${d})`); }
+  const older = cur90-cur30;
+  if (older>0) { const d=Math.min(12,older*4); score-=d; reasons.push(`${older} panne${older>1?"s":""} de plus sur 90 jours (−${d})`); }
+  const late = plans.filter(p=>p.active && (p.next_due<=today() || planHoursDue(p,[machine]))).length;
+  if (late>0) { const d=Math.min(30,late*15); score-=d; reasons.push(`${late} préventif${late>1?"s":""} en retard (−${d})`); }
+  const counts = {};
+  its.filter(i=>i.type==="curative" && i.failure_cause && now-new Date(i.reported_at)<90*864e5)
+     .forEach(i=>{counts[i.failure_cause]=(counts[i.failure_cause]||0)+1;});
+  const rec = Object.entries(counts).find(([,n])=>n>=3);
+  if (rec) { score-=10; reasons.push(`cause récurrente : ${FAILCAUSE[rec[0]]?.label} ×${rec[1]} (−10)`); }
+  if (machine.status==="alarm") { score-=15; reasons.push("machine actuellement en panne (−15)"); }
+  score = Math.max(0, Math.min(100, score));
+  return {score, reasons, color: score>=80?"var(--run)":score>=55?"var(--warn)":"var(--alarm)"};
+}
+
 /* ------------------------- ROOT + routing ------------------------- */
 function Root() {
   const [hash,setHash] = useState(window.location.hash);
@@ -284,6 +306,11 @@ function App({session}) {
       const {data:o} = await sb.from("organizations").select("*").order("name");
       setOrgs(o||[]);
     },
+    fetchMachineComments: async ids => {
+      if (!ids.length) return [];
+      const {data} = await sb.from("intervention_comments").select("*, author:profiles(full_name)").in("intervention_id",ids).order("created_at",{ascending:false});
+      return data || [];
+    },
     fetchComments: async iid => {
       const {data} = await sb.from("intervention_comments").select("*, author:profiles(full_name)").eq("intervention_id",iid).order("created_at");
       return data || [];
@@ -395,8 +422,8 @@ function App({session}) {
         </header>
 
         {view.name==="dashboard" && <Dashboard machines={machines} interventions={interventions} kpi={kpi} machineName={machineName} db={db} setView={setView}/>}
-        {view.name==="parc" && <Parc machines={machines} setModal={setModal} setView={setView}/>}
-        {view.name==="machine" && <MachineDetail machine={machines.find(m=>m.id===view.id)} docs={docs.filter(d=>d.machine_id===view.id)} interventions={interventions.filter(i=>i.machine_id===view.id)} parts={parts} db={db} back={()=>setView({name:"parc"})}/>}
+        {view.name==="parc" && <Parc machines={machines} interventions={interventions} preventifs={preventifs} setModal={setModal} setView={setView}/>}
+        {view.name==="machine" && <MachineDetail machine={machines.find(m=>m.id===view.id)} docs={docs.filter(d=>d.machine_id===view.id)} interventions={interventions.filter(i=>i.machine_id===view.id)} parts={parts} plans={preventifs.filter(p=>p.machine_id===view.id)} db={db} back={()=>setView({name:"parc"})}/>}
         {view.name==="interventions" && <>
           <Toolbar><H2>Interventions</H2><button className="btn" onClick={()=>setModal("intervention")}>+ Déclarer</button></Toolbar>
           {interventions.map(i=><IRow key={i.id} i={i} machineName={machineName} db={db} full parts={parts}/>)}
@@ -455,11 +482,13 @@ function Dashboard({machines,interventions,kpi,machineName,db,setView}) {
   </>;
 }
 
-function Parc({machines,setModal,setView}) {
+function Parc({machines,interventions,preventifs,setModal,setView}) {
   return <>
     <Toolbar><H2>Parc machines ({machines.length})</H2><button className="btn" onClick={()=>setModal("machine")}>+ Ajouter</button></Toolbar>
     <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(240px,1fr))",gap:12}}>
-      {machines.map(m=>(
+      {machines.map(m=>{
+        const h = computeHealth(m, interventions.filter(i=>i.machine_id===m.id), preventifs.filter(p=>p.machine_id===m.id));
+        return (
         <div key={m.id} className="card" style={{display:"flex",flexDirection:"column",gap:10,cursor:"pointer"}} onClick={()=>setView({name:"machine",id:m.id})}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
             <div>
@@ -472,16 +501,19 @@ function Parc({machines,setModal,setView}) {
             <span style={{color:CRIT[m.criticality]?.color}}>{"▮".repeat(m.criticality)}{"▯".repeat(3-m.criticality)} {CRIT[m.criticality]?.label}</span>
             <span style={{color:"var(--muted)"}}>{m.meta?.year?` · ${m.meta.year}`:""}</span>
           </div>
-          <div style={{font:"600 11px system-ui",color:"var(--muted)"}}>Ouvrir la fiche →</div>
+          <div style={{font:"600 12px system-ui",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+            <span>Forme : <b style={{color:h.color}}>{h.score}</b><span style={{color:"var(--muted)"}}>/100</span></span>
+            <span style={{font:"600 11px system-ui",color:"var(--muted)"}}>Ouvrir la fiche →</span>
+          </div>
         </div>
-      ))}
+      );})}
     </div>
     {machines.length===0 && <Empty>Ajoutez votre première machine avec le bouton ci-dessus.</Empty>}
   </>;
 }
 
 /* ------------------------- FICHE MACHINE ------------------------- */
-function MachineDetail({machine,docs,interventions,parts,db,back}) {
+function MachineDetail({machine,docs,interventions,parts,plans,db,back}) {
   const [tab,setTab] = useState("infos");
   if (!machine) return null;
   return <>
@@ -497,11 +529,12 @@ function MachineDetail({machine,docs,interventions,parts,db,back}) {
                 onChange={st=>db.setMachineStatus(machine.id,st)}/>
     </div>
     <div style={{borderBottom:"1.5px solid #D5D8DC",marginBottom:16}}>
-      {[["infos","Infos & specs"],["docs",`Documents (${docs.length})`],["histo",`Historique (${interventions.length})`],["qr","QR code"]].map(([k,l])=>(
+      {[["infos","Infos & specs"],["activite","Activité"],["docs",`Documents (${docs.length})`],["histo",`Historique (${interventions.length})`],["qr","QR code"]].map(([k,l])=>(
         <button key={k} className={"tab"+(tab===k?" active":"")} onClick={()=>setTab(k)}>{l}</button>
       ))}
     </div>
     {tab==="infos" && <><MeterBox machine={machine} db={db}/><Specs machine={machine} db={db}/></>}
+    {tab==="activite" && <ActivityTab machine={machine} interventions={interventions} docs={docs} plans={plans||[]} db={db}/>}
     {tab==="docs" && <Docs machine={machine} docs={docs} db={db}/>}
     {tab==="histo" && <>
       {interventions.map(i=><IRow key={i.id} i={i} machineName={()=>""} db={db} full parts={parts}/>)}
@@ -585,6 +618,71 @@ function Docs({machine,docs,db}) {
       );
     })}
     {docs.length===0 && <Empty>Aucun document. Ajoutez schémas électriques, pneumatiques, hydrauliques, notices de maintenance…</Empty>}
+  </>;
+}
+
+function Heatmap({interventions}) {
+  const counts = {};
+  interventions.filter(i=>i.type==="curative").forEach(i=>{
+    const d = i.reported_at?.slice(0,10);
+    if (d) counts[d] = (counts[d]||0)+1;
+  });
+  const start = new Date(); start.setDate(start.getDate()-364);
+  const days = [...Array(365)].map((_,k)=>{const d=new Date(start); d.setDate(d.getDate()+k); return d.toISOString().slice(0,10);});
+  const color = n => !n ? "#E3E5E8" : n===1 ? "#F0B4AD" : n===2 ? "#E07A6E" : "var(--alarm)";
+  return (
+    <div className="card" style={{maxWidth:800,overflowX:"auto"}}>
+      <div style={{display:"grid",gridTemplateRows:"repeat(7,10px)",gridAutoFlow:"column",gap:2,width:"max-content"}}>
+        {days.map(d=><div key={d} title={d+(counts[d]?` — ${counts[d]} panne${counts[d]>1?"s":""}`:"")} style={{width:10,height:10,background:color(counts[d])}}/>)}
+      </div>
+      <div style={{font:"500 11px system-ui",color:"var(--muted)",marginTop:8,display:"flex",gap:10,alignItems:"center"}}>
+        <span>Il y a 12 mois</span>
+        <span style={{marginLeft:"auto"}}>Pannes/jour :</span>
+        {[0,1,2,3].map(n=><span key={n} style={{display:"inline-flex",alignItems:"center",gap:3}}><span style={{width:10,height:10,background:color(n),display:"inline-block"}}/>{n===3?"3+":n}</span>)}
+      </div>
+    </div>
+  );
+}
+
+function ActivityTab({machine,interventions,docs,plans,db}) {
+  const {score,reasons,color} = computeHealth(machine,interventions,plans);
+  const [comments,setComments] = useState([]);
+  useEffect(() => { db.fetchMachineComments(interventions.map(i=>i.id)).then(setComments); }, [machine.id]);
+  const events = [];
+  interventions.forEach(i=>{
+    events.push({at:i.reported_at, icon:i.type==="curative"?"🔴":"🛠️", label:`${ITYPE[i.type]} : ${i.title}`});
+    if (i.finished_at) events.push({at:i.finished_at, icon:"✅", label:`Clôturée : ${i.title}`});
+  });
+  docs.forEach(d=>events.push({at:d.created_at, icon:"📄", label:`Document : ${d.name}`}));
+  comments.forEach(c=>events.push({at:c.created_at, icon:"💬", label:`${c.author?.full_name||"?"} : ${c.body}`}));
+  events.sort((a,b)=>new Date(b.at)-new Date(a.at));
+  return <>
+    <div className="card" style={{maxWidth:560,marginBottom:16}}>
+      <div style={{display:"flex",alignItems:"center",gap:16}}>
+        <div style={{fontFamily:"var(--display)",fontSize:40,lineHeight:1,color}}>{score}</div>
+        <div style={{flex:1}}>
+          <div style={{font:"700 11px system-ui",textTransform:"uppercase",letterSpacing:".07em",color:"var(--muted)"}}>Forme machine / 100</div>
+          <div style={{background:"var(--bg)",height:10,marginTop:6}}><div style={{width:score+"%",height:"100%",background:color}}/></div>
+        </div>
+      </div>
+      {reasons.length>0
+        ? reasons.map((r,k)=><div key={k} style={{font:"500 12px system-ui",color:"var(--muted)",marginTop:6}}>• {r}</div>)
+        : <div style={{font:"600 12px system-ui",color:"var(--run)",marginTop:10}}>Aucun signal négatif — machine en pleine forme.</div>}
+      <div style={{font:"500 11px system-ui",color:"var(--muted)",marginTop:10}}>
+        Calculé sans capteurs : pannes récentes, préventifs en retard, causes récurrentes, état actuel.
+      </div>
+    </div>
+    <H2>Pannes sur 12 mois</H2>
+    <Heatmap interventions={interventions}/>
+    <H2>Fil d'activité</H2>
+    {events.map((e,k)=>(
+      <div key={k} style={{display:"flex",gap:10,padding:"8px 2px",borderBottom:"1px solid #E3E5E8",font:"500 13px system-ui",alignItems:"baseline"}}>
+        <span>{e.icon}</span>
+        <span style={{flex:1}}>{e.label}</span>
+        <span style={{color:"var(--muted)",font:"500 12px system-ui",whiteSpace:"nowrap"}}>{e.at?.slice(0,16).replace("T"," ")}</span>
+      </div>
+    ))}
+    {events.length===0 && <Empty>Aucune activité sur cette machine pour l'instant.</Empty>}
   </>;
 }
 
