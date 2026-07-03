@@ -65,6 +65,7 @@ const STATUS = {
   running:{label:"En marche",color:"var(--run)"},
   stopped:{label:"Arrêtée",color:"var(--muted)"},
   maintenance:{label:"En maintenance",color:"var(--warn)"},
+  degraded:{label:"Dégradé autorisé",color:"var(--accent)"},
   alarm:{label:"En panne",color:"var(--alarm)"},
 };
 const ITYPE = {curative:"Curatif",preventive:"Préventif",improvement:"Amélioratif"};
@@ -121,6 +122,7 @@ function computeHealth(machine, its, plans) {
   const rec = Object.entries(counts).find(([,n])=>n>=3);
   if (rec) { score-=10; reasons.push(`cause récurrente : ${FAILCAUSE[rec[0]]?.label} ×${rec[1]} (−10)`); }
   if (machine.status==="alarm") { score-=15; reasons.push("machine actuellement en panne (−15)"); }
+  if (machine.status==="degraded") { score-=8; reasons.push("en mode dégradé autorisé (−8)"); }
   score = Math.max(0, Math.min(100, score));
   return {score, reasons, color: score>=80?"var(--run)":score>=55?"var(--warn)":"var(--alarm)"};
 }
@@ -133,9 +135,11 @@ function Root() {
     window.addEventListener("hashchange", on);
     return () => window.removeEventListener("hashchange", on);
   }, []);
-  // Page publique QR : #/qr/<token> — pas besoin de compte
+  // Pages publiques : #/qr/<token> (déclarer) et #/suivi/<token> (suivre) — sans compte
   const qrMatch = hash.match(/^#\/qr\/([0-9a-f-]{36})/i);
   if (qrMatch) return <QRPage token={qrMatch[1]}/>;
+  const trackMatch = hash.match(/^#\/suivi\/([0-9a-f-]{36})/i);
+  if (trackMatch) return <TrackPage token={trackMatch[1]}/>;
   return <AuthGate/>;
 }
 
@@ -161,13 +165,15 @@ function QRPage({token}) {
   const [name,setName] = useState("");
   const [desc,setDesc] = useState("");
   const [state,setState] = useState("form"); // form | sending | done | error
+  const [track,setTrack] = useState(null);
   useEffect(() => { (async () => {
     const {data,error} = await sb.rpc("qr_get_machine",{qr:token});
     setMachine(error || !data?.length ? null : data[0]);
   })(); }, []);
   const send = async () => {
     setState("sending");
-    const {error} = await sb.rpc("qr_declare",{qr:token, p_title:desc, p_name:name});
+    const {data,error} = await sb.rpc("qr_declare",{qr:token, p_title:desc, p_name:name});
+    if (!error && data) setTrack(data);
     setState(error ? "error" : "done");
   };
   if (machine === undefined) return <Center>Chargement…</Center>;
@@ -190,6 +196,16 @@ function QRPage({token}) {
             <div style={{fontSize:40}}>✓</div>
             <div style={{font:"700 15px system-ui",color:"var(--run)"}}>Panne déclarée</div>
             <div style={{font:"500 13px system-ui",color:"var(--muted)",marginTop:6}}>L'équipe maintenance est prévenue.</div>
+            {track && (
+              <>
+                <a className="btn" style={{display:"block",textAlign:"center",textDecoration:"none",marginTop:16,padding:"14px"}} href={"#/suivi/"+track}>
+                  📍 Suivre la réparation
+                </a>
+                <div style={{font:"500 11px system-ui",color:"var(--muted)",marginTop:8}}>
+                  Gardez ce lien : il vous montre l'avancement en direct, sans compte.
+                </div>
+              </>
+            )}
           </div>
         ) : (
           <>
@@ -202,6 +218,62 @@ function QRPage({token}) {
             </button>
           </>
         )}
+      </div>
+    </Center>
+  );
+}
+
+/* ------------------------- PAGE PUBLIQUE SUIVI (pizza tracker) ------------------------- */
+function TrackPage({token}) {
+  const [t,setT] = useState(undefined);
+  useEffect(() => {
+    const load = async () => {
+      const {data,error} = await sb.rpc("qr_track",{token});
+      setT(error || !data?.length ? null : data[0]);
+    };
+    load();
+    const iv = setInterval(load, 30000); // rafraîchit tout seul
+    return () => clearInterval(iv);
+  }, []);
+  if (t === undefined) return <Center>Chargement…</Center>;
+  if (t === null) return <Center><div style={{font:"600 14px system-ui",color:"var(--alarm)"}}>Lien de suivi invalide.</div></Center>;
+  const fmt = d => d ? d.slice(0,16).replace("T"," à ") : null;
+  const steps = [
+    {label:"Panne déclarée", done:true, at:fmt(t.reported_at), desc:"L'équipe maintenance est prévenue."},
+    t.status==="waiting_parts"
+      ? {label:"En attente de pièces", done:true, at:null, desc:"La réparation reprendra à réception des pièces."}
+      : {label:"Réparation en cours", done:t.status==="in_progress"||t.status==="done"||!!t.started_at, at:fmt(t.started_at), desc:"Un technicien est sur la machine."},
+    {label:"Machine réparée", done:t.status==="done", at:fmt(t.finished_at), desc:"C'est terminé, merci d'avoir prévenu !"},
+  ];
+  return (
+    <Center>
+      <div style={{background:"#fff",padding:28,width:420,maxWidth:"94vw",borderTop:"5px solid var(--accent)"}}>
+        <div style={{fontFamily:"var(--display)",fontSize:18,marginBottom:2}}>
+          <span style={{color:"var(--accent)"}}>▮▮</span> MAINT<span style={{color:"var(--accent)"}}>X</span>
+        </div>
+        <div style={{font:"600 11px system-ui",textTransform:"uppercase",letterSpacing:".1em",color:"var(--muted)",marginBottom:18}}>
+          Suivi de réparation
+        </div>
+        <div style={{background:"var(--bg)",padding:"12px 16px",marginBottom:20}}>
+          <div style={{font:"700 10px ui-monospace,monospace",color:"var(--muted)",textTransform:"uppercase"}}>{t.machine_code||"—"}</div>
+          <div style={{fontWeight:800,fontSize:16}}>{t.machine_name}</div>
+          <div style={{font:"500 13px system-ui",color:"var(--muted)",marginTop:4}}>{t.title}</div>
+        </div>
+        {steps.map((s,k)=>(
+          <div key={k} style={{display:"flex",gap:14,alignItems:"flex-start",paddingBottom:k<steps.length-1?22:0,position:"relative"}}>
+            {k<steps.length-1 && <div style={{position:"absolute",left:7,top:36,bottom:0,width:2,background:s.done?"var(--run)":"#D5D8DC"}}/>}
+            <span className={"lamp"+(!s.done&&k===steps.findIndex(x=>!x.done)?" blink":"")}
+                  style={{background:s.done?"var(--run)":"#D5D8DC",width:16,height:34,flexShrink:0}}/>
+            <div>
+              <div style={{font:s.done?"800 15px system-ui":"600 15px system-ui",color:s.done?"var(--ink)":"var(--muted)"}}>{s.label}</div>
+              {s.at && <div style={{font:"500 12px system-ui",color:"var(--muted)"}}>{s.at}</div>}
+              {s.done && <div style={{font:"500 12px system-ui",color:"var(--muted)",marginTop:2}}>{s.desc}</div>}
+            </div>
+          </div>
+        ))}
+        <div style={{font:"500 11px system-ui",color:"var(--muted)",marginTop:22,textAlign:"center"}}>
+          Cette page se met à jour automatiquement.
+        </div>
       </div>
     </Center>
   );
@@ -286,7 +358,8 @@ function App({session}) {
       if (st==="done") patch.finished_at = new Date().toISOString();
       await sb.from("interventions").update(patch).eq("id",id); refresh();
     },
-    setMachineStatus: async (id,st) => { await sb.from("machines").update({status:st}).eq("id",id); refresh(); },
+    setMachineStatus: async (id,st) => { await sb.from("machines").update({status:st,degraded_conditions:null,degraded_deadline:null}).eq("id",id); refresh(); },
+    setDegraded: async (id,conditions,deadline) => { await sb.from("machines").update({status:"degraded",degraded_conditions:conditions,degraded_deadline:deadline}).eq("id",id); refresh(); },
     setInterventionCause: async (id,cause) => { await sb.from("interventions").update({failure_cause:cause}).eq("id",id); refresh(); },
     addPart: async f => { await sb.from("parts").insert({org_id:orgId,name:f.name,ref:f.ref||null,location:f.location||null,qty:+f.qty||0,min_qty:+f.min_qty||0,unit_cost:f.unit_cost?+f.unit_cost:null}); refresh(); setModal(null); },
     adjustPart: async (p,delta) => { await sb.from("parts").update({qty:Math.max(0,+p.qty+delta)}).eq("id",p.id); refresh(); },
@@ -454,6 +527,7 @@ function App({session}) {
 
 /* ------------------------- VUES ------------------------- */
 function Dashboard({machines,interventions,kpi,machineName,db,setView}) {
+  const degOver = machines.filter(m=>m.status==="degraded" && m.degraded_deadline && m.degraded_deadline<today());
   return <>
     <div style={{display:"flex",gap:4,flexWrap:"wrap",background:"var(--panel)",padding:"14px 16px 10px",borderBottom:"3px solid var(--accent)",marginBottom:20}}>
       {machines.length===0 && <span style={{font:"500 13px system-ui",color:"var(--muted)"}}>Aucune machine — ajoutez votre parc dans « Parc machines ».</span>}
@@ -471,6 +545,12 @@ function Dashboard({machines,interventions,kpi,machineName,db,setView}) {
       <Kpi label="Préventifs en retard" value={kpi.retard} alert={kpi.retard>0}/>
       <Kpi label="Pièces en stock bas" value={kpi.lowStock} alert={kpi.lowStock>0}/>
     </div>
+    {degOver.length>0 && (
+      <div style={{background:"#FDECEA",border:"1px solid var(--alarm)",color:"var(--alarm)",padding:"12px 16px",margin:"16px 0 0",font:"600 13px system-ui",cursor:"pointer"}}
+           onClick={()=>setView({name:"machine",id:degOver[0].id})}>
+        ⏰ Mode dégradé dépassé : {degOver.map(m=>`${m.name} (à réparer avant le ${m.degraded_deadline})`).join(", ")} — planifiez la réparation.
+      </div>
+    )}
     {kpi.chroniques.length>0 && (
       <div style={{background:"#FDECEA",border:"1px solid var(--alarm)",color:"var(--alarm)",padding:"12px 16px",margin:"16px 0",font:"600 13px system-ui"}}>
         ⚠ Panne chronique : {kpi.chroniques.map(c=>`${c.m?.name} (${c.n} curatifs / 90 j)`).join(", ")}
@@ -501,6 +581,12 @@ function Parc({machines,interventions,preventifs,setModal,setView}) {
             <span style={{color:CRIT[m.criticality]?.color}}>{"▮".repeat(m.criticality)}{"▯".repeat(3-m.criticality)} {CRIT[m.criticality]?.label}</span>
             <span style={{color:"var(--muted)"}}>{m.meta?.year?` · ${m.meta.year}`:""}</span>
           </div>
+          {m.status==="degraded" && m.degraded_deadline && (() => {
+            const days = Math.ceil((new Date(m.degraded_deadline)-Date.now())/864e5);
+            return <div style={{font:"700 11px system-ui",color:days<0?"var(--alarm)":"#8A6D00"}}>
+              ⚠ Dégradé · {days<0?`dépassé de ${-days} j`:`J−${days}`}
+            </div>;
+          })()}
           <div style={{font:"600 12px system-ui",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
             <span>Forme : <b style={{color:h.color}}>{h.score}</b><span style={{color:"var(--muted)"}}>/100</span></span>
             <span style={{font:"600 11px system-ui",color:"var(--muted)"}}>Ouvrir la fiche →</span>
@@ -515,6 +601,7 @@ function Parc({machines,interventions,preventifs,setModal,setView}) {
 /* ------------------------- FICHE MACHINE ------------------------- */
 function MachineDetail({machine,docs,interventions,parts,plans,db,back}) {
   const [tab,setTab] = useState("infos");
+  const [degModal,setDegModal] = useState(false);
   if (!machine) return null;
   return <>
     <button className="btn ghost sm" onClick={back}>← Retour au parc</button>
@@ -526,8 +613,11 @@ function MachineDetail({machine,docs,interventions,parts,plans,db,back}) {
       </div>
       <Dropdown width={195} align="right" style={{marginLeft:"auto"}} value={machine.status}
                 options={Object.entries(STATUS).map(([k,v])=>({value:k,label:v.label,color:v.color}))}
-                onChange={st=>db.setMachineStatus(machine.id,st)}/>
+                onChange={st=>st==="degraded" ? setDegModal(true) : db.setMachineStatus(machine.id,st)}/>
     </div>
+    {machine.status==="degraded" && <DegradedBanner machine={machine} onEdit={()=>setDegModal(true)}/>}
+    {degModal && <DegradedModal machine={machine} onClose={()=>setDegModal(false)}
+                                onSave={(cond,dl)=>{db.setDegraded(machine.id,cond,dl);setDegModal(false);}}/>}
     <div style={{borderBottom:"1.5px solid #D5D8DC",marginBottom:16}}>
       {[["infos","Infos & specs"],["activite","Activité"],["docs",`Documents (${docs.length})`],["histo",`Historique (${interventions.length})`],["qr","QR code"]].map(([k,l])=>(
         <button key={k} className={"tab"+(tab===k?" active":"")} onClick={()=>setTab(k)}>{l}</button>
@@ -542,6 +632,52 @@ function MachineDetail({machine,docs,interventions,parts,plans,db,back}) {
     </>}
     {tab==="qr" && <QRTab machine={machine}/>}
   </>;
+}
+
+function DegradedBanner({machine,onEdit}) {
+  const days = machine.degraded_deadline ? Math.ceil((new Date(machine.degraded_deadline)-Date.now())/864e5) : null;
+  const over = days !== null && days < 0;
+  return (
+    <div style={{background:over?"#FDECEA":"#FFF7DB",border:`1.5px solid ${over?"var(--alarm)":"var(--accent)"}`,padding:"12px 16px",margin:"12px 0",display:"flex",gap:14,alignItems:"center",flexWrap:"wrap"}}>
+      <div style={{flex:1,minWidth:220}}>
+        <div style={{font:"800 12px system-ui",textTransform:"uppercase",letterSpacing:".05em",color:over?"var(--alarm)":"var(--ink)"}}>
+          ⚠ Mode dégradé autorisé {over ? "— DATE LIMITE DÉPASSÉE" : ""}
+        </div>
+        <div style={{font:"500 13px system-ui",marginTop:4}}>{machine.degraded_conditions}</div>
+      </div>
+      <div style={{textAlign:"center"}}>
+        <div style={{fontFamily:"var(--display)",fontSize:24,lineHeight:1,color:over?"var(--alarm)":"var(--ink)"}}>
+          {days===null ? "—" : over ? `+${-days} j` : `J−${days}`}
+        </div>
+        <div style={{font:"600 10px system-ui",textTransform:"uppercase",color:"var(--muted)"}}>
+          {over ? "de retard" : "avant réparation"}
+        </div>
+        <div style={{font:"600 11px system-ui",color:"var(--muted)"}}>{machine.degraded_deadline}</div>
+      </div>
+      <button className="btn ghost sm" onClick={onEdit}>Modifier</button>
+    </div>
+  );
+}
+
+function DegradedModal({machine,onClose,onSave}) {
+  const [cond,setCond] = useState(machine.degraded_conditions || "");
+  const [dl,setDl] = useState(machine.degraded_deadline || addDays(today(),7));
+  return (
+    <Modal title="Mode dégradé autorisé" onClose={onClose}>
+      <div style={{font:"500 12px system-ui",color:"var(--muted)",marginBottom:12}}>
+        La machine continue de tourner sous conditions, avec une date limite de réparation.
+        L'écart est assumé et tracé (principe repris de l'aéronautique).
+      </div>
+      <label style={{font:"500 12px system-ui",color:"var(--muted)"}}>Conditions d'exploitation (obligatoire)</label>
+      <textarea rows={3} placeholder="Ex : vitesse réduite 50 %, pas d'usinage inox, contrôle visuel toutes les 2 h"
+                value={cond} onChange={e=>setCond(e.target.value)} style={{marginBottom:10}}/>
+      <label style={{font:"500 12px system-ui",color:"var(--muted)"}}>Réparer avant le</label>
+      <input type="date" value={dl} onChange={e=>setDl(e.target.value)} style={{marginBottom:12}}/>
+      <button className="btn" disabled={!cond.trim()||!dl} onClick={()=>onSave(cond.trim(),dl)} style={{width:"100%"}}>
+        Activer le mode dégradé
+      </button>
+    </Modal>
+  );
 }
 
 function MeterBox({machine,db}) {

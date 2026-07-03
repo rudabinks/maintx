@@ -29,11 +29,13 @@ plus. En cas de doute : moins de clics, moins de champs, plus gros boutons.
 
 ## 🚀 Lot A — jamais vu, gratuit, rapide (aucune IA)
 
-- [ ] **Pizza tracker de panne** : lien public tokenisé après déclaration QR
-      ("Vu ✓ → Planifié → En cours → Résolu"), sans compte
-- [ ] **Statut "dégradé autorisé"** (MEL aviation) : machine qui tourne sous conditions
-      affichées + date limite de réparation + compte à rebours + escalade si dépassée.
-      Philosophie du shunt assumé et tracé
+- [x] **Pizza tracker de panne** : page publique #/suivi/<token> après déclaration QR
+      (Déclarée → En réparation / Attente pièces → Réparée), sans compte,
+      rafraîchissement auto 30 s (patch-v06.sql : track_token + qr_track)
+- [x] **Statut "dégradé autorisé"** (MEL aviation) : 5e statut andon jaune, conditions
+      d'exploitation obligatoires + date limite, bandeau compte à rebours J−x sur la
+      fiche, alerte rouge dashboard si dépassé, −8 au score de forme
+      (patch-v06.sql : contrainte status + degraded_conditions/deadline)
 - [x] **Fil d'activité unifié par machine** : onglet Activité (interventions, clôtures,
       docs, commentaires dans un fil chronologique) + heatmap 12 mois (1 carré/jour,
       rouge = panne)
@@ -90,6 +92,8 @@ plus. En cas de doute : moins de clics, moins de champs, plus gros boutons.
 - [ ] Facturation Stripe
 - [ ] Plan Connect : ingestion machine_events + TRS (FOCAS/MTConnect, alternance
       Dreamtech)
+- [ ] Auto-hébergement : Supabase self-hosted sur serveur perso de Lilian (long terme ;
+      hébergement UE Supabase confirmé en attendant — argument RGPD actif)
 
 ## 📜 Règles produit (retours terrain, agents juillet 2026)
 
