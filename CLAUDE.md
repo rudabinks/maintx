@@ -59,16 +59,10 @@ Identité "atelier" : fond gris béton #EBECEE, encre #1B1D21, accent jaune séc
 Titres 'Arial Black' uppercase. Élément signature : pastilles "andon" verticales.
 Interface 100 % en français.
 
-## Roadmap (ordre indicatif)
-Vague 2 : stock de pièces détachées (stock mini + alertes + consommation liée aux
-interventions), préventif au compteur d'heures, coût par machine (pièces + MO).
-Vague 3 : bibliothèque de gammes par famille de machine (accélère les setups),
-rapport mensuel PDF automatique, conformité constructeur (référentiel doc
-constructeur vs gammes réelles, écarts assumés « shuntés » avec raison).
-Puis : migration Vite + React multi-fichiers, création des comptes utilisateurs
-clients depuis l'admin superadmin, import CSV du parc machines, facturation Stripe,
-plan Connect (ingestion machine_events + TRS quand Lilian aura les compétences
-FOCAS/MTConnect via son alternance Dreamtech).
+## Roadmap
+Voir ROADMAP.md (checklist complète : vague 2 fondamentaux, lots A/B/C issus de la
+veille inter-sectorielle, backlog, anti-patterns à éviter). Principe : les gens ont
+peur des GMAO — toujours simple et ergonomique, moins de clics, moins de champs.
 
 ## Conventions
 - Réponses et UI en français. Style d'échange : direct, concis, livrables d'abord.

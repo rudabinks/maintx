@@ -1,0 +1,93 @@
+# MaintX — Roadmap / Checklist
+
+Principe directeur (non négociable) : **les gens ont peur des GMAO**. ~70 % des
+déploiements échouent sur l'ergonomie, pas les fonctionnalités. Chaque feature doit
+simplifier la vie de l'opérateur/technicien, jamais ajouter un champ obligatoire de
+plus. En cas de doute : moins de clics, moins de champs, plus gros boutons.
+
+## ✅ Fait
+
+- [x] v0.1–0.3 : auth, multi-tenant, dashboard andon, parc machines, fiche machine
+      (specs/docs/historique/QR), page publique QR sans compte, préventif calendaire,
+      analyse (downtime, interventions/mois, curatif vs préventif)
+- [x] Déploiement GitHub Pages (rudabinks.github.io/maintx)
+- [x] UI : menus déroulants custom style atelier (pastilles andon, plus de select natif)
+- [x] v0.4 : checklists préventives (validation partielle tracée), photos interventions,
+      cause de panne + Pareto, fil de commentaires (patch-v04.sql exécuté)
+
+## 🔨 Vague 2 — fondamentaux (en cours)
+
+- [ ] **Stock de pièces détachées** : liste des pièces (réf, nom, emplacement, stock,
+      stock mini, coût unitaire), alerte stock bas sur le dashboard, consommation
+      saisie à l'intervention (décrémente le stock, historisée dans parts_used)
+- [ ] **Préventif au compteur d'heures** : compteur d'heures par machine (saisie
+      manuelle, prépare le plan Connect), gammes déclenchables par heures en plus
+      du calendaire ("toutes les 500 h")
+- [ ] **Coût par machine** : pièces consommées + temps d'intervention × taux horaire
+      (taux dans organizations.settings) — affiché sur la fiche machine et en Analyse
+
+## 🚀 Lot A — jamais vu, gratuit, rapide (aucune IA)
+
+- [ ] **Pizza tracker de panne** : lien public tokenisé après déclaration QR
+      ("Vu ✓ → Planifié → En cours → Résolu"), sans compte
+- [ ] **Statut "dégradé autorisé"** (MEL aviation) : machine qui tourne sous conditions
+      affichées + date limite de réparation + compte à rebours + escalade si dépassée.
+      Philosophie du shunt assumé et tracé
+- [ ] **Fil d'activité unifié par machine** : pannes, statuts, photos, docs, commentaires
+      dans un seul fil chronologique + heatmap 12 mois (1 carré/jour, rouge = panne)
+- [ ] **Score de forme machine 0-100** (façon Whoop, sans capteurs) : retard préventif,
+      fréquence pannes récentes, MTTR vs historique, récurrence cause Pareto, âge.
+      Jauge couleur + explication en langage simple
+
+## 🔁 Lot B — rituels & fidélisation
+
+- [ ] **Brief du lundi** : une seule notification hebdo narrative (cron + LLM léger),
+      les urgences andon restent instantanées
+- [ ] **Séries préventives** (streaks Duolingo) : "12 semaines sans préventif en
+      retard 🔥", badge d'équipe, jamais de flicage individuel
+- [ ] **MaintX Rétro** (Spotify Wrapped, décembre) : diaporama animé pour le patron,
+      partageable PDF — pub gratuite
+- [ ] **Inbox de triage des déclarations QR** (Linear) : Accepter+assigner / Fusionner
+      doublon / Reporter / Rejeter, objectif inbox zero
+
+## 🤖 Lot C — IA atelier (Edge Functions Supabase, ~5-8 €/mois/client max)
+
+- [ ] **Mode mains sales** ⭐ priorité de Lilian : le technicien dicte son compte rendu
+      (gants/mains sales), Whisper transcrit, LLM structure (compte rendu, cause,
+      pièces mentionnées, durée) et remplit le bon d'intervention
+- [ ] **Docteur Panne** : photo au moment du scan QR → vision IA propose cause,
+      gravité, pré-remplit la déclaration (lit les codes erreur des écrans CN)
+- [ ] **Mécano (RAG)** : assistant français qui a lu les manuels uploadés, réponses
+      sourcées page à l'appui (pgvector) — la réponse à MaintainX CoPilot à prix PME
+
+## 📦 Backlog (issu de la veille, à prioriser plus tard)
+
+- [ ] Conformité constructeur : référentiel doc constructeur vs gammes réelles,
+      écarts couverts/insuffisants/manquants/**shuntés avec raison obligatoire**,
+      score par machine (idée fondatrice de Lilian) ; phase 2 : extraction IA du PDF
+- [ ] Remise en service à double signature (checklist chirurgicale OMS) : technicien
+      + opérateur valident avant retour en production
+- [ ] Cahier de passation d'équipe pré-rempli (shift logbook restauration)
+- [ ] Mise en kit d'intervention (kitting logistique) : pièces/outils/EPI cochés
+      avant de passer "en cours"
+- [ ] Pannes épinglées sur plan d'atelier (Fieldwire) — floorplan_url existe déjà
+- [ ] Post-mortem guidé après panne critique (timeline auto + 3 questions + PDF audit)
+- [ ] Cycle de maintenance hebdo avec report auto + badge "reporté 3×" (Linear Cycles)
+- [ ] Automatisations no-code en français "quand X alors Y" (Notion)
+- [ ] Palette de commandes Ctrl+K + recherche universelle mobile
+- [ ] Bibliothèque de gammes par famille de machine (pré-remplie par Lilian à chaque
+      setup → setups de plus en plus rapides)
+- [ ] Import CSV du parc machines
+- [ ] Création des comptes utilisateurs clients depuis l'admin superadmin
+- [ ] Migration Vite + React multi-fichiers (même design/comportement)
+- [ ] Facturation Stripe
+- [ ] Plan Connect : ingestion machine_events + TRS (FOCAS/MTConnect, alternance
+      Dreamtech)
+
+## ⚠️ Anti-patterns à éviter (veille + retours terrain)
+
+- Formulaires à 15 champs, champs obligatoires superflus → adoption tuée
+- Notifier chaque événement → fatigue, tout finit ignoré (préférer le Brief du lundi)
+- Leaderboard individuel → vécu comme du flicage (préférer les séries d'équipe)
+- Rapports PDF austères que personne ne lit (préférer Rétro + Brief narratif)
+- (section à enrichir avec les résultats de l'agent "retours utilisateurs GMAO")
