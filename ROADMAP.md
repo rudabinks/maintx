@@ -79,6 +79,11 @@ plus. En cas de doute : moins de clics, moins de champs, plus gros boutons.
 - [ ] Palette de commandes Ctrl+K + recherche universelle mobile
 - [ ] Bibliothèque de gammes par famille de machine (pré-remplie par Lilian à chaque
       setup → setups de plus en plus rapides)
+- [ ] Annotation des photos (flèches, cercles, texte — canvas simple) : feature la
+      plus citée en positif par les techniciens
+- [ ] Export CSV/Excel sur toutes les listes (machines, interventions, pièces)
+- [ ] Sous-ensembles machine (ligne → machine → organe) : hiérarchie 3 niveaux mini
+- [ ] Mode hors-ligne avec synchronisation (zones d'atelier sans wifi)
 - [ ] Import CSV du parc machines
 - [ ] Création des comptes utilisateurs clients depuis l'admin superadmin
 - [ ] Migration Vite + React multi-fichiers (même design/comportement)
@@ -86,10 +91,49 @@ plus. En cas de doute : moins de clics, moins de champs, plus gros boutons.
 - [ ] Plan Connect : ingestion machine_events + TRS (FOCAS/MTConnect, alternance
       Dreamtech)
 
-## ⚠️ Anti-patterns à éviter (veille + retours terrain)
+## 📜 Règles produit (retours terrain, agents juillet 2026)
 
-- Formulaires à 15 champs, champs obligatoires superflus → adoption tuée
-- Notifier chaque événement → fatigue, tout finit ignoré (préférer le Brief du lundi)
-- Leaderboard individuel → vécu comme du flicage (préférer les séries d'équipe)
+Insight central : les gens n'ont pas peur des GMAO, ils ont peur de la **saisie**
+et des outils conçus pour la direction. Le concurrent réel = Excel + WhatsApp + papier.
+L'argument gagnant : "montre en 2 mois que c'est plus rapide que ton tableur".
+
+- Déclarer une intervention : **< 30 secondes, 3 champs max** (titre, machine, photo)
+- Historique machine accessible en 1 tap (fait : onglets fiche machine + fil d'activité)
+- Photos annotables (flèches, texte) = la feature la plus aimée des techniciens → backlog
+- Export Excel/CSV partout (rassure contre le lock-in) → backlog
+- Parité mobile/desktop + tester avec police système agrandie (techniciens âgés)
+- Checklists cochables au point d'intervention avec preuve photo légère
+  (anti "pencil whipping" : cocher sans faire)
+- Démarrer un client avec 10 machines et enrichir au fil de l'eau — jamais exiger
+  une migration parfaite avant le go-live (les projets calent à 75-80 %)
+- Performance irréprochable : une app qui rame = avis assassins + abandon
+
+## 💼 Règles business (setup = le produit)
+
+- ~40 % des PME abandonnent leur GMAO en < 18 mois ; cause n°1 : la préparation.
+  Le setup payant sur site EST le produit ("GMAO opérationnelle en 30 jours")
+- Reprendre max 2 ans d'historique au setup, archiver le reste
+- Identifier un "technicien relais" chez le client et le former en premier
+- Rendez-vous de suivi à J+30 et J+90 (le désengagement se joue au début)
+- Forfait atelier (150 €/mois) confirmé — jamais de prix par utilisateur, jamais
+  de hausse surprise en année 2, jamais de freemium bridé
+- Support téléphonique direct = différenciateur imbattable pour un solo (cf. Bob! Desk)
+- Pitch : audit ISO 9001 (traçabilité) + pannes chiffrées en € (graphique coûts)
+- Afficher "données hébergées en Europe" (vérifier la région du projet Supabase,
+  clause de réversibilité/export dans le contrat)
+
+## ⚠️ Anti-patterns à éviter (confirmés par les avis utilisateurs)
+
+- Champs obligatoires superflus = "taxe de saisie" → saisies bidon ou abandon
+- Workflows d'approbation multi-niveaux → "pocket veto" : on répare sans tracer.
+  Aucune approbation par défaut en petite équipe
+- Concevoir pour le manager d'abord ("designed for management, not boots on ground"
+  = LA raison de la haine des GMAO) — les dashboards viennent après le terrain
+- Tout activer au jour 1 → complexité perçue, désengagement en 30 jours
+- Vendre du prédictif/IoT à des ateliers de 5-50 machines (jamais utilisé ;
+  notre score de forme heuristique suffit)
+- Interdire l'édition après clôture, pas d'édition en masse (reproches MaintainX)
+- Notifier chaque événement → tout finit ignoré (préférer le Brief du lundi)
+- Leaderboard individuel → flicage (préférer les séries d'équipe)
+- Double saisie papier + appli (premier reproche des techniciens)
 - Rapports PDF austères que personne ne lit (préférer Rétro + Brief narratif)
-- (section à enrichir avec les résultats de l'agent "retours utilisateurs GMAO")
