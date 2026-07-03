@@ -19,7 +19,7 @@ maintenance sur Excel/papier. Business model :
     sb_publishable_KXSWUiTsFqU6aDf67rF51g_t_px3jkt
 - Déploiement : GitHub Pages (site statique).
 
-## Base de données (voir schema.sql + patch-v03.sql)
+## Base de données (voir schema.sql + patch-v03.sql + patch-v04.sql)
 Tables : organizations (tenants), profiles (rôles : operator/technician/manager/superadmin),
 zones, machines, interventions, preventive_plans, machine_events, machine_documents.
 Vues : v_kpi_machine, v_chronic_failures (avec security_invoker = true).
@@ -30,7 +30,7 @@ Vues : v_kpi_machine, v_chronic_failures (avec security_invoker = true).
 - QR public : fonctions RPC `qr_get_machine(qr)` et `qr_declare(qr, p_title, p_name)`
   en security definer, accessibles au rôle anon. La déclaration passe la machine en `alarm`.
 
-## Fonctionnalités actuelles (v0.3)
+## Fonctionnalités actuelles (v0.4)
 - Auth email/mot de passe. Comptes créés par l'admin (pas d'inscription publique).
 - Multi-tenant : superadmin switch entre clients, crée des orgs depuis l'onglet Admin.
 - Dashboard : bandeau "andon" (pastilles type colonne lumineuse, clignote si panne),
@@ -43,8 +43,15 @@ Vues : v_kpi_machine, v_chronic_failures (avec security_invoker = true).
 - Page publique #/qr/<token> : déclaration de panne sans compte (mobile-first).
 - Préventif : création de gammes (périodicité en jours), bouton "Fait" → replanifie
   next_due et trace une intervention preventive done.
-- Analyse : bar charts SVG maison (downtime par machine, interventions/mois,
-  répartition curatif/préventif).
+- Analyse : bar charts SVG maison (Pareto des causes de panne, downtime par machine,
+  interventions/mois, répartition curatif/préventif).
+- v0.4 : checklists dans les gammes préventives (cochées à la validation, tracées
+  dans l'intervention même si partielles), photos sur interventions (bucket docs,
+  chemin org_id/machine_id/interventions/id_intervention/), cause de panne sur les
+  curatifs (failure_cause : mecanique/electrique/pneumatique/hydraulique/
+  cn_automatisme/autre), fil de commentaires (table intervention_comments).
+- UI : menus déroulants custom (composant Dropdown, pastilles andon colorées,
+  surlignage jaune) — plus aucun <select> natif.
 
 ## Design (à préserver)
 Identité "atelier" : fond gris béton #EBECEE, encre #1B1D21, accent jaune sécurité
@@ -53,14 +60,15 @@ Titres 'Arial Black' uppercase. Élément signature : pastilles "andon" vertical
 Interface 100 % en français.
 
 ## Roadmap (ordre indicatif)
-1. Migration Vite + React multi-fichiers (garder le même design/comportement)
-2. Création des comptes utilisateurs clients depuis l'admin superadmin
-3. Checklists dans les gammes préventives (le champ jsonb checklist existe déjà)
-4. Import CSV du parc machines (pour accélérer les setups clients)
-5. Photos sur les interventions (le champ photos jsonb existe déjà)
-6. Facturation Stripe
-7. Plan Connect : ingestion machine_events + TRS (quand Lilian aura les compétences
-   FOCAS/MTConnect via son alternance Dreamtech)
+Vague 2 : stock de pièces détachées (stock mini + alertes + consommation liée aux
+interventions), préventif au compteur d'heures, coût par machine (pièces + MO).
+Vague 3 : bibliothèque de gammes par famille de machine (accélère les setups),
+rapport mensuel PDF automatique, conformité constructeur (référentiel doc
+constructeur vs gammes réelles, écarts assumés « shuntés » avec raison).
+Puis : migration Vite + React multi-fichiers, création des comptes utilisateurs
+clients depuis l'admin superadmin, import CSV du parc machines, facturation Stripe,
+plan Connect (ingestion machine_events + TRS quand Lilian aura les compétences
+FOCAS/MTConnect via son alternance Dreamtech).
 
 ## Conventions
 - Réponses et UI en français. Style d'échange : direct, concis, livrables d'abord.

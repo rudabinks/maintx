@@ -68,6 +68,14 @@ const STATUS = {
   alarm:{label:"En panne",color:"var(--alarm)"},
 };
 const ITYPE = {curative:"Curatif",preventive:"Préventif",improvement:"Amélioratif"};
+const FAILCAUSE = {
+  mecanique:{label:"Mécanique",color:"#B3541E"},
+  electrique:{label:"Électrique",color:"#E8940A"},
+  pneumatique:{label:"Pneumatique",color:"#2C74B3"},
+  hydraulique:{label:"Hydraulique",color:"#144272"},
+  cn_automatisme:{label:"CN / Automatisme",color:"#6B4FA1"},
+  autre:{label:"Autre",color:"#8A8F98"},
+};
 const ISTATUS = {
   open:{label:"Ouverte",color:"var(--alarm)"},
   in_progress:{label:"En cours",color:"var(--warn)"},
@@ -249,16 +257,35 @@ function App({session}) {
       await sb.from("interventions").update(patch).eq("id",id); refresh();
     },
     setMachineStatus: async (id,st) => { await sb.from("machines").update({status:st}).eq("id",id); refresh(); },
+    setInterventionCause: async (id,cause) => { await sb.from("interventions").update({failure_cause:cause}).eq("id",id); refresh(); },
+    fetchComments: async iid => {
+      const {data} = await sb.from("intervention_comments").select("*, author:profiles(full_name)").eq("intervention_id",iid).order("created_at");
+      return data || [];
+    },
+    addComment: async (iid,body) => { await sb.from("intervention_comments").insert({org_id:orgId,intervention_id:iid,author_id:profile.id,body}); },
+    uploadPhoto: async (i,file) => {
+      const path = `${orgId}/${i.machine_id}/interventions/${i.id}/${Date.now()}_${file.name.replace(/[^a-zA-Z0-9._-]/g,"_")}`;
+      const {error:e1} = await sb.storage.from("docs").upload(path, file);
+      if (e1) { alert("Erreur upload : "+e1.message); return; }
+      await sb.from("interventions").update({photos:[...(i.photos||[]),{path,name:file.name}]}).eq("id",i.id);
+      refresh();
+    },
+    openPhoto: async path => {
+      const {data,error} = await sb.storage.from("docs").createSignedUrl(path, 3600);
+      if (error) { alert("Erreur d'accès à la photo"); return; }
+      window.open(data.signedUrl, "_blank");
+    },
     addOrg: async name => {
       const slug = name.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"");
       await sb.from("organizations").insert({name,slug});
       const {data:o} = await sb.from("organizations").select("*").order("name");
       setOrgs(o||[]); setModal(null);
     },
-    addPreventif: async f => { await sb.from("preventive_plans").insert({org_id:orgId,machine_id:f.machine,title:f.title,freq_days:f.freq,next_due:f.next}); refresh(); setModal(null); },
-    donePreventif: async p => {
+    addPreventif: async f => { await sb.from("preventive_plans").insert({org_id:orgId,machine_id:f.machine,title:f.title,freq_days:f.freq,next_due:f.next,checklist:(f.checklist||[]).map(s=>({step:s}))}); refresh(); setModal(null); },
+    donePreventif: async (p,steps) => {
       await sb.from("preventive_plans").update({next_due:addDays(today(),p.freq_days)}).eq("id",p.id);
-      await sb.from("interventions").insert({org_id:orgId,machine_id:p.machine_id,type:"preventive",priority:1,title:p.title,status:"done",reported_by:profile.id,started_at:new Date().toISOString(),finished_at:new Date().toISOString()});
+      const desc = steps?.length ? "Checklist :\n"+steps.map(s=>(s.done?"✓ ":"✗ ")+s.step).join("\n") : null;
+      await sb.from("interventions").insert({org_id:orgId,machine_id:p.machine_id,type:"preventive",priority:1,title:p.title,description:desc,status:"done",reported_by:profile.id,started_at:new Date().toISOString(),finished_at:new Date().toISOString()});
       refresh();
     },
     uploadDoc: async (machineId, file, category) => {
@@ -546,26 +573,54 @@ function QRTab({machine}) {
 
 /* ------------------------- PRÉVENTIF ------------------------- */
 function Preventif({preventifs,machineName,db,setModal}) {
+  const [checkFor,setCheckFor] = useState(null);
   return <>
     <Toolbar><H2>Gammes préventives</H2><button className="btn" onClick={()=>setModal("preventif")}>+ Nouvelle gamme</button></Toolbar>
     {preventifs.map(p=>{
       const late = p.active && p.next_due<=today();
+      const nbSteps = p.checklist?.length || 0;
       return (
         <Row key={p.id} style={{borderLeft:`4px solid ${late?"var(--alarm)":"var(--run)"}`}}>
           <div style={{flex:1}}>
             <b>{p.title}</b>
-            <div style={{font:"500 12px system-ui",color:"var(--muted)",marginTop:2}}>{machineName(p.machine_id)} · tous les {p.freq_days} j</div>
+            <div style={{font:"500 12px system-ui",color:"var(--muted)",marginTop:2}}>
+              {machineName(p.machine_id)} · tous les {p.freq_days} j{nbSteps>0 && ` · ☑ ${nbSteps} points`}
+            </div>
           </div>
           <div style={{textAlign:"right"}}>
             <div style={{fontWeight:700,color:late?"var(--alarm)":"var(--ink)"}}>{p.next_due}</div>
             <div style={{font:"500 12px system-ui",color:"var(--muted)"}}>{late?"EN RETARD":"planifié"}</div>
           </div>
-          <button className="btn sm" onClick={()=>db.donePreventif(p)}>✓ Fait</button>
+          <button className="btn sm" onClick={()=>nbSteps>0 ? setCheckFor(p) : db.donePreventif(p)}>✓ Fait</button>
         </Row>
       );
     })}
     {preventifs.length===0 && <Empty>Aucune gamme préventive — créez la première avec le bouton ci-dessus.</Empty>}
+    {checkFor && <ChecklistModal plan={checkFor} onClose={()=>setCheckFor(null)}
+                                 onValidate={steps=>{db.donePreventif(checkFor,steps);setCheckFor(null);}}/>}
   </>;
+}
+
+function ChecklistModal({plan,onClose,onValidate}) {
+  const [steps,setSteps] = useState((plan.checklist||[]).map(s=>({step:s.step||s,done:false})));
+  const nb = steps.filter(s=>s.done).length;
+  return (
+    <Modal title={plan.title} onClose={onClose}>
+      <div style={{font:"500 12px system-ui",color:"var(--muted)",marginBottom:12}}>
+        Cochez les points réalisés. Vous pouvez valider même si tout n'a pas été fait — les points non faits resteront tracés dans l'historique.
+      </div>
+      {steps.map((s,k)=>(
+        <label key={k} style={{display:"flex",gap:10,alignItems:"center",padding:"9px 10px",background:s.done?"rgba(31,162,84,.08)":"var(--bg)",marginBottom:6,cursor:"pointer",font:"600 13px system-ui"}}>
+          <input type="checkbox" checked={s.done} style={{width:18,height:18,margin:0}}
+                 onChange={()=>setSteps(steps.map((x,j)=>j===k?{...x,done:!x.done}:x))}/>
+          <span style={s.done?{textDecoration:"line-through",color:"var(--muted)"}:null}>{s.step}</span>
+        </label>
+      ))}
+      <button className="btn" style={{width:"100%",marginTop:10}} onClick={()=>onValidate(steps)}>
+        ✓ Valider ({nb}/{steps.length} faits)
+      </button>
+    </Modal>
+  );
 }
 
 /* ------------------------- ANALYSE ------------------------- */
@@ -586,7 +641,21 @@ function Analyse({machines,interventions}) {
   const byType = Object.entries(ITYPE).map(([k,v])=>({label:v, value:interventions.filter(i=>i.type===k).length})).filter(x=>x.value>0);
   const total = interventions.length;
 
+  // Pareto des causes de panne (curatifs avec cause renseignée)
+  const curatives = interventions.filter(i=>i.type==="curative");
+  const pareto = Object.entries(FAILCAUSE)
+    .map(([k,v])=>({label:v.label, value:curatives.filter(i=>i.failure_cause===k).length}))
+    .filter(x=>x.value>0).sort((a,b)=>b.value-a.value);
+  const sansCause = curatives.filter(i=>!i.failure_cause).length;
+
   return <>
+    <H2>Pareto des causes de panne</H2>
+    <BarChart data={pareto} color="var(--warn)" empty="Renseignez la cause des pannes (menu « Cause ? » sur chaque intervention curative) pour voir apparaître le Pareto."/>
+    {sansCause>0 && pareto.length>0 && (
+      <div style={{font:"500 12px system-ui",color:"var(--muted)",marginTop:-4}}>
+        {sansCause} panne{sansCause>1?"s":""} sans cause renseignée — non comptée{sansCause>1?"s":""} dans le graphique.
+      </div>
+    )}
     <H2>Temps d'arrêt par machine (minutes)</H2>
     <BarChart data={downtimeByMachine} color="var(--alarm)" empty="Pas encore de temps d'arrêt mesuré — passez des interventions En cours → Clôturée."/>
     <H2>Interventions par mois</H2>
@@ -636,7 +705,7 @@ function BarChart({data,color,empty}) {
 }
 
 /* ------------------- Petits composants ------------------- */
-function Dropdown({value,options,onChange,width,align="left",style}) {
+function Dropdown({value,options,onChange,width,align="left",style,placeholder}) {
   const [open,setOpen] = useState(false);
   const ref = useRef();
   useEffect(() => {
@@ -652,7 +721,7 @@ function Dropdown({value,options,onChange,width,align="left",style}) {
     <div ref={ref} style={{position:"relative",width,...style}}>
       <button type="button" className="dd-btn" onClick={()=>setOpen(!open)}>
         {sel?.color && <span className="dd-dot" style={{background:sel.color}}/>}
-        <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{sel?.label ?? "Sélectionner…"}</span>
+        <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",color:sel?"var(--ink)":"var(--muted)"}}>{sel?.label ?? placeholder ?? "Sélectionner…"}</span>
         <span className="dd-chev" style={open?{transform:"rotate(180deg)"}:null}>▼</span>
       </button>
       {open && (
@@ -689,23 +758,79 @@ function Kpi({label,value,alert}) {
 }
 
 function IRow({i,machineName,db,full}) {
+  const [open,setOpen] = useState(false);
   const prioC = i.priority===3?"var(--alarm)":i.priority===2?"var(--warn)":"var(--muted)";
+  const photos = i.photos || [];
   return (
-    <Row style={{borderLeft:`4px solid ${prioC}`}}>
-      <div style={{flex:1}}>
-        <b>{i.title}</b>
-        <div style={{font:"500 12px system-ui",color:"var(--muted)",marginTop:2}}>
-          {machineName(i.machine_id)} {machineName(i.machine_id)?"· ":""}{ITYPE[i.type]} · {i.reported_at?.slice(0,10)}
+    <div style={{marginBottom:8}}>
+      <Row style={{borderLeft:`4px solid ${prioC}`,marginBottom:0}}>
+        <div style={{flex:1}}>
+          <b>{i.title}</b>
+          <div style={{font:"500 12px system-ui",color:"var(--muted)",marginTop:2}}>
+            {machineName(i.machine_id)} {machineName(i.machine_id)?"· ":""}{ITYPE[i.type]} · {i.reported_at?.slice(0,10)}
+            {photos.length>0 && ` · 📷 ${photos.length}`}
+            {i.failure_cause && <span style={{color:FAILCAUSE[i.failure_cause]?.color,fontWeight:700}}> · {FAILCAUSE[i.failure_cause]?.label}</span>}
+          </div>
         </div>
+        {full && i.type==="curative" && (
+          <Dropdown width={165} align="right" value={i.failure_cause} placeholder="Cause ?"
+                    options={Object.entries(FAILCAUSE).map(([k,v])=>({value:k,label:v.label,color:v.color}))}
+                    onChange={c=>db.setInterventionCause(i.id,c)}/>
+        )}
+        {full ? (
+          <Dropdown width={170} align="right" value={i.status}
+                    options={Object.entries(ISTATUS).map(([k,v])=>({value:k,label:v.label,color:v.color}))}
+                    onChange={st=>db.setInterventionStatus(i.id,st)}/>
+        ) : (
+          <span style={{color:"#fff",font:"700 10px system-ui",textTransform:"uppercase",padding:"5px 10px",background:i.status==="done"?"var(--run)":"var(--ink)"}}>{ISTATUS[i.status].label}</span>
+        )}
+        {full && <button className="btn ghost sm" title="Photos et commentaires" onClick={()=>setOpen(!open)}>{open?"▲":"▼ Détails"}</button>}
+      </Row>
+      {open && full && <InterventionDetail i={i} db={db}/>}
+    </div>
+  );
+}
+
+function InterventionDetail({i,db}) {
+  const [comments,setComments] = useState(null);
+  const [txt,setTxt] = useState("");
+  const [busy,setBusy] = useState(false);
+  const load = () => db.fetchComments(i.id).then(setComments);
+  useEffect(() => { load(); }, [i.id]);
+  const send = async () => {
+    if (!txt.trim()) return;
+    setBusy(true); await db.addComment(i.id, txt.trim()); setTxt(""); await load(); setBusy(false);
+  };
+  const photos = i.photos || [];
+  return (
+    <div style={{background:"#F6F7F8",borderLeft:"4px solid #D5D8DC",padding:"12px 16px"}}>
+      {i.description && <div style={{font:"500 13px system-ui",whiteSpace:"pre-wrap",marginBottom:10}}>{i.description}</div>}
+      <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center",marginBottom:12}}>
+        {photos.map((ph,k)=>(
+          <button key={k} className="btn ghost sm" onClick={()=>db.openPhoto(ph.path)}>📷 {ph.name?.length>20?ph.name.slice(0,20)+"…":ph.name||("photo "+(k+1))}</button>
+        ))}
+        <label className="btn sm" style={{cursor:"pointer"}}>
+          📷 + Photo
+          <input type="file" accept="image/*" style={{display:"none"}}
+                 onChange={e=>{const f=e.target.files[0]; if(f){db.uploadPhoto(i,f); e.target.value="";}}}/>
+        </label>
       </div>
-      {full ? (
-        <Dropdown width={170} align="right" value={i.status}
-                  options={Object.entries(ISTATUS).map(([k,v])=>({value:k,label:v.label,color:v.color}))}
-                  onChange={st=>db.setInterventionStatus(i.id,st)}/>
-      ) : (
-        <span style={{color:"#fff",font:"700 10px system-ui",textTransform:"uppercase",padding:"5px 10px",background:i.status==="done"?"var(--run)":"var(--ink)"}}>{ISTATUS[i.status].label}</span>
-      )}
-    </Row>
+      <div style={{font:"700 11px system-ui",textTransform:"uppercase",letterSpacing:".06em",color:"var(--muted)",marginBottom:6}}>Commentaires</div>
+      {comments === null && <div style={{font:"500 12px system-ui",color:"var(--muted)"}}>Chargement…</div>}
+      {comments?.map(c=>(
+        <div key={c.id} style={{marginBottom:8}}>
+          <span style={{font:"700 12px system-ui"}}>{c.author?.full_name || "?"}</span>
+          <span style={{font:"500 11px system-ui",color:"var(--muted)"}}> · {c.created_at?.slice(0,16).replace("T"," ")}</span>
+          <div style={{font:"500 13px system-ui"}}>{c.body}</div>
+        </div>
+      ))}
+      {comments?.length === 0 && <div style={{font:"500 12px system-ui",color:"var(--muted)",marginBottom:8}}>Aucun commentaire.</div>}
+      <div style={{display:"flex",gap:8,marginTop:8}}>
+        <input placeholder="Ajouter un commentaire (pièce changée, réglage effectué…)" value={txt}
+               onChange={e=>setTxt(e.target.value)} onKeyDown={e=>e.key==="Enter"&&send()}/>
+        <button className="btn sm" disabled={busy||!txt.trim()} onClick={send}>Envoyer</button>
+      </div>
+    </div>
   );
 }
 
@@ -757,7 +882,9 @@ function InterventionModal({machines,onClose,onSave}) {
 }
 
 function PreventifModal({machines,onClose,onSave}) {
-  const [f,setF] = useState({machine:machines[0]?.id,title:"",freq:30,next:today()});
+  const [f,setF] = useState({machine:machines[0]?.id,title:"",freq:30,next:today(),checklist:[]});
+  const [step,setStep] = useState("");
+  const addStep = () => { if(!step.trim()) return; setF({...f,checklist:[...f.checklist,step.trim()]}); setStep(""); };
   return (
     <Modal title="Nouvelle gamme préventive" onClose={onClose}>
       <label style={{font:"500 12px system-ui",color:"var(--muted)"}}>Machine</label>
@@ -769,6 +896,18 @@ function PreventifModal({machines,onClose,onSave}) {
       <input type="number" min="1" value={f.freq} onChange={e=>setF({...f,freq:+e.target.value})} style={{marginBottom:10}}/>
       <label style={{font:"500 12px system-ui",color:"var(--muted)"}}>Première échéance</label>
       <input type="date" value={f.next} onChange={e=>setF({...f,next:e.target.value})} style={{marginBottom:10}}/>
+      <label style={{font:"500 12px system-ui",color:"var(--muted)"}}>Checklist (optionnel) — points que le technicien cochera</label>
+      {f.checklist.map((s,k)=>(
+        <div key={k} style={{display:"flex",alignItems:"center",gap:8,padding:"4px 0",font:"600 13px system-ui"}}>
+          <span style={{color:"var(--accent)"}}>▮</span><span style={{flex:1}}>{s}</span>
+          <button className="btn ghost sm" onClick={()=>setF({...f,checklist:f.checklist.filter((_,j)=>j!==k)})}>✕</button>
+        </div>
+      ))}
+      <div style={{display:"flex",gap:8,margin:"6px 0 10px"}}>
+        <input placeholder="Point de contrôle (ex: Vérifier niveau d'huile)" value={step}
+               onChange={e=>setStep(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"){e.preventDefault();addStep();}}}/>
+        <button className="btn sm" disabled={!step.trim()} onClick={addStep}>+</button>
+      </div>
       <button className="btn" disabled={!f.title||!f.machine} onClick={()=>onSave(f)} style={{width:"100%",marginTop:6}}>Créer</button>
     </Modal>
   );
