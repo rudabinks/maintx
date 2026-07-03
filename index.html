@@ -1,0 +1,731 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MaintX — GMAO</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<style>
+  :root {
+    --bg:#EBECEE; --panel:#fff; --ink:#1B1D21; --muted:#8A8F98;
+    --accent:#FFC400; --run:#1FA254; --warn:#E8940A; --alarm:#D63B2F;
+    --display:'Arial Black','Helvetica Neue',system-ui,sans-serif;
+  }
+  *{box-sizing:border-box} body{margin:0;font-family:system-ui,sans-serif;background:var(--bg);color:var(--ink)}
+  .nav{display:block;width:100%;text-align:left;padding:11px 16px;border:0;background:transparent;color:#C9CCD1;font:600 13px system-ui;cursor:pointer;border-left:3px solid transparent}
+  .nav:hover{color:#fff}
+  .nav.active{color:var(--accent);border-left-color:var(--accent);background:rgba(255,196,0,.06)}
+  .btn{background:var(--ink);color:var(--accent);border:0;padding:10px 18px;font:700 13px system-ui;text-transform:uppercase;letter-spacing:.05em;cursor:pointer}
+  .btn:hover{background:#000}.btn:disabled{opacity:.4;cursor:default}
+  .btn.ghost{background:transparent;color:var(--ink);border:1.5px solid var(--ink)}
+  .btn.sm{padding:6px 12px;font-size:11px}
+  .andon{display:flex;flex-direction:column;align-items:center;gap:6px;cursor:pointer;padding:4px 8px}
+  .andon-code{font:700 10px ui-monospace,monospace;color:var(--muted);letter-spacing:.05em}
+  .lamp{width:14px;height:34px;border-radius:7px;display:inline-block;box-shadow:inset 0 -6px 8px rgba(0,0,0,.18),0 0 0 2px rgba(0,0,0,.08)}
+  .lamp.lg{width:16px;height:40px}
+  .lamp.blink{animation:blink 1s steps(1) infinite}
+  @keyframes blink{50%{opacity:.25}}
+  @media (prefers-reduced-motion:reduce){.lamp.blink{animation:none}}
+  input,select,textarea{padding:10px 12px;border:1.5px solid #D5D8DC;font:500 14px system-ui;width:100%;background:#fff}
+  select.inline{width:auto;font:600 12px system-ui;padding:7px 10px}
+  .tab{border:0;background:transparent;padding:10px 14px;font:700 12px system-ui;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);cursor:pointer;border-bottom:3px solid transparent}
+  .tab.active{color:var(--ink);border-bottom-color:var(--accent)}
+  .doccat{font:700 10px system-ui;text-transform:uppercase;letter-spacing:.06em;padding:3px 8px;color:#fff}
+  .card{background:var(--panel);padding:16px}
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel" data-presets="react">
+/* ============================================================
+   MaintX v0.3 — QR · Documents · Fiche machine · Préventif · Analyse
+   ============================================================ */
+const SUPABASE_URL = "https://krfrzuxdymgzttkdcaab.supabase.co";
+const SUPABASE_KEY = "sb_publishable_KXSWUiTsFqU6aDf67rF51g_t_px3jkt";
+const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+const { useState, useEffect, useMemo, useRef } = React;
+
+const STATUS = {
+  running:{label:"En marche",color:"var(--run)"},
+  stopped:{label:"Arrêtée",color:"var(--muted)"},
+  maintenance:{label:"En maintenance",color:"var(--warn)"},
+  alarm:{label:"En panne",color:"var(--alarm)"},
+};
+const ITYPE = {curative:"Curatif",preventive:"Préventif",improvement:"Amélioratif"};
+const ISTATUS = {open:"Ouverte",in_progress:"En cours",waiting_parts:"Attente pièces",done:"Clôturée"};
+const CRIT = {
+  1:{label:"Secondaire",desc:"Un arrêt ne bloque pas la production",color:"var(--muted)"},
+  2:{label:"Importante",desc:"Un arrêt gêne la production mais reste contournable",color:"var(--warn)"},
+  3:{label:"Critique",desc:"Un arrêt stoppe la production ou pose un risque sécurité",color:"var(--alarm)"},
+};
+const DOCCAT = {
+  electrique:{label:"Électrique",color:"#B3541E"},
+  pneumatique:{label:"Pneumatique",color:"#2C74B3"},
+  hydraulique:{label:"Hydraulique",color:"#144272"},
+  maintenance:{label:"Maintenance",color:"#1FA254"},
+  autre:{label:"Autre",color:"#8A8F98"},
+};
+const today = () => new Date().toISOString().slice(0,10);
+const addDays = (d,n) => { const x = new Date(d); x.setDate(x.getDate()+n); return x.toISOString().slice(0,10); };
+
+/* ------------------------- ROOT + routing ------------------------- */
+function Root() {
+  const [hash,setHash] = useState(window.location.hash);
+  useEffect(() => {
+    const on = () => setHash(window.location.hash);
+    window.addEventListener("hashchange", on);
+    return () => window.removeEventListener("hashchange", on);
+  }, []);
+  // Page publique QR : #/qr/<token> — pas besoin de compte
+  const qrMatch = hash.match(/^#\/qr\/([0-9a-f-]{36})/i);
+  if (qrMatch) return <QRPage token={qrMatch[1]}/>;
+  return <AuthGate/>;
+}
+
+function AuthGate() {
+  const [session,setSession] = useState(undefined);
+  useEffect(() => {
+    sb.auth.getSession().then(({data})=>setSession(data.session));
+    const {data:{subscription}} = sb.auth.onAuthStateChange((_e,s)=>setSession(s));
+    return () => subscription.unsubscribe();
+  }, []);
+  if (session === undefined) return <Center>Chargement…</Center>;
+  if (!session) return <Login/>;
+  return <App session={session}/>;
+}
+
+function Center({children}) {
+  return <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>{children}</div>;
+}
+
+/* ------------------------- PAGE PUBLIQUE QR ------------------------- */
+function QRPage({token}) {
+  const [machine,setMachine] = useState(undefined);
+  const [name,setName] = useState("");
+  const [desc,setDesc] = useState("");
+  const [state,setState] = useState("form"); // form | sending | done | error
+  useEffect(() => { (async () => {
+    const {data,error} = await sb.rpc("qr_get_machine",{qr:token});
+    setMachine(error || !data?.length ? null : data[0]);
+  })(); }, []);
+  const send = async () => {
+    setState("sending");
+    const {error} = await sb.rpc("qr_declare",{qr:token, p_title:desc, p_name:name});
+    setState(error ? "error" : "done");
+  };
+  if (machine === undefined) return <Center>Chargement…</Center>;
+  if (machine === null) return <Center><div style={{font:"600 14px system-ui",color:"var(--alarm)"}}>QR code invalide ou machine supprimée.</div></Center>;
+  return (
+    <Center>
+      <div style={{background:"#fff",padding:28,width:420,maxWidth:"94vw",borderTop:"5px solid var(--accent)"}}>
+        <div style={{fontFamily:"var(--display)",fontSize:18,marginBottom:2}}>
+          <span style={{color:"var(--accent)"}}>▮▮</span> MAINT<span style={{color:"var(--accent)"}}>X</span>
+        </div>
+        <div style={{font:"600 11px system-ui",textTransform:"uppercase",letterSpacing:".1em",color:"var(--muted)",marginBottom:20}}>
+          Déclaration de panne · {machine.org_name}
+        </div>
+        <div style={{background:"var(--bg)",padding:"12px 16px",marginBottom:18}}>
+          <div style={{font:"700 10px ui-monospace,monospace",color:"var(--muted)",textTransform:"uppercase"}}>{machine.code} · {machine.family}</div>
+          <div style={{fontWeight:800,fontSize:17}}>{machine.name}</div>
+        </div>
+        {state === "done" ? (
+          <div style={{textAlign:"center",padding:"16px 0"}}>
+            <div style={{fontSize:40}}>✓</div>
+            <div style={{font:"700 15px system-ui",color:"var(--run)"}}>Panne déclarée</div>
+            <div style={{font:"500 13px system-ui",color:"var(--muted)",marginTop:6}}>L'équipe maintenance est prévenue.</div>
+          </div>
+        ) : (
+          <>
+            <textarea placeholder="Décrivez le problème (ex: alarme broche, fuite d'huile…)" rows={3}
+                      value={desc} onChange={e=>setDesc(e.target.value)} style={{marginBottom:10}}/>
+            <input placeholder="Votre nom (optionnel)" value={name} onChange={e=>setName(e.target.value)} style={{marginBottom:14}}/>
+            {state === "error" && <div style={{color:"var(--alarm)",font:"600 12px system-ui",marginBottom:10}}>Erreur d'envoi — réessayez.</div>}
+            <button className="btn" style={{width:"100%",padding:"14px"}} disabled={!desc || state==="sending"} onClick={send}>
+              {state === "sending" ? "Envoi…" : "🔴 Déclarer la panne"}
+            </button>
+          </>
+        )}
+      </div>
+    </Center>
+  );
+}
+
+/* ------------------------- LOGIN ------------------------- */
+function Login() {
+  const [email,setEmail] = useState("");
+  const [pwd,setPwd] = useState("");
+  const [err,setErr] = useState(null);
+  const [busy,setBusy] = useState(false);
+  const go = async () => {
+    setBusy(true); setErr(null);
+    const {error} = await sb.auth.signInWithPassword({email, password:pwd});
+    if (error) setErr("Identifiants incorrects ou compte inexistant.");
+    setBusy(false);
+  };
+  return (
+    <Center>
+      <div style={{background:"#fff",padding:32,width:380,borderTop:"5px solid var(--accent)"}}>
+        <div style={{fontFamily:"var(--display)",fontSize:24,marginBottom:4}}>
+          <span style={{color:"var(--accent)"}}>▮▮</span> MAINT<span style={{color:"var(--accent)"}}>X</span>
+        </div>
+        <div style={{font:"600 11px system-ui",textTransform:"uppercase",letterSpacing:".1em",color:"var(--muted)",marginBottom:24}}>GMAO · Connexion</div>
+        <input placeholder="Email" value={email} onChange={e=>setEmail(e.target.value)} style={{marginBottom:10}}/>
+        <input placeholder="Mot de passe" type="password" value={pwd} onChange={e=>setPwd(e.target.value)} onKeyDown={e=>e.key==="Enter"&&go()} style={{marginBottom:14}}/>
+        {err && <div style={{color:"var(--alarm)",font:"600 12px system-ui",marginBottom:12}}>{err}</div>}
+        <button className="btn" style={{width:"100%"}} disabled={busy||!email||!pwd} onClick={go}>{busy?"Connexion…":"Se connecter"}</button>
+        <div style={{font:"500 11px system-ui",color:"var(--muted)",marginTop:16}}>Les comptes sont créés par votre administrateur MaintX.</div>
+      </div>
+    </Center>
+  );
+}
+
+/* ------------------------- APP ------------------------- */
+function App({session}) {
+  const [profile,setProfile] = useState(null);
+  const [orgs,setOrgs] = useState([]);
+  const [orgId,setOrgId] = useState(null);
+  const [machines,setMachines] = useState([]);
+  const [interventions,setInterventions] = useState([]);
+  const [preventifs,setPreventifs] = useState([]);
+  const [docs,setDocs] = useState([]);
+  const [view,setView] = useState({name:"dashboard"});
+  const [modal,setModal] = useState(null);
+  const [error,setError] = useState(null);
+
+  const isSuper = profile?.role === "superadmin";
+  const org = orgs.find(o=>o.id===orgId);
+
+  useEffect(() => { (async () => {
+    const {data:p,error:e1} = await sb.from("profiles").select("*").eq("id",session.user.id).single();
+    if (e1 || !p) { setError("Profil introuvable. L'administrateur doit créer votre profil."); return; }
+    setProfile(p);
+    const {data:o} = await sb.from("organizations").select("*").order("name");
+    setOrgs(o||[]);
+    setOrgId(p.org_id || (o&&o[0]?.id) || null);
+  })(); }, []);
+
+  const refresh = async () => {
+    if (!orgId) return;
+    const [m,i,p,d] = await Promise.all([
+      sb.from("machines").select("*").eq("org_id",orgId).order("code"),
+      sb.from("interventions").select("*").eq("org_id",orgId).order("reported_at",{ascending:false}),
+      sb.from("preventive_plans").select("*").eq("org_id",orgId).order("next_due"),
+      sb.from("machine_documents").select("*").eq("org_id",orgId).order("created_at",{ascending:false}),
+    ]);
+    setMachines(m.data||[]); setInterventions(i.data||[]); setPreventifs(p.data||[]); setDocs(d.data||[]);
+  };
+  useEffect(() => { refresh(); }, [orgId]);
+
+  /* --- Actions --- */
+  const db = {
+    addMachine: async f => { await sb.from("machines").insert({org_id:orgId,name:f.name,code:f.code,family:f.family,criticality:f.crit,meta:{year:f.year,specs:{}}}); refresh(); setModal(null); },
+    updateMachineMeta: async (id,meta) => { await sb.from("machines").update({meta}).eq("id",id); refresh(); },
+    addIntervention: async f => { await sb.from("interventions").insert({org_id:orgId,machine_id:f.machine,type:f.type,priority:f.prio,title:f.title,reported_by:profile.id}); refresh(); setModal(null); },
+    setInterventionStatus: async (id,st) => {
+      const patch = {status:st};
+      if (st==="in_progress") patch.started_at = new Date().toISOString();
+      if (st==="done") patch.finished_at = new Date().toISOString();
+      await sb.from("interventions").update(patch).eq("id",id); refresh();
+    },
+    setMachineStatus: async (id,st) => { await sb.from("machines").update({status:st}).eq("id",id); refresh(); },
+    addOrg: async name => {
+      const slug = name.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"");
+      await sb.from("organizations").insert({name,slug});
+      const {data:o} = await sb.from("organizations").select("*").order("name");
+      setOrgs(o||[]); setModal(null);
+    },
+    addPreventif: async f => { await sb.from("preventive_plans").insert({org_id:orgId,machine_id:f.machine,title:f.title,freq_days:f.freq,next_due:f.next}); refresh(); setModal(null); },
+    donePreventif: async p => {
+      await sb.from("preventive_plans").update({next_due:addDays(today(),p.freq_days)}).eq("id",p.id);
+      await sb.from("interventions").insert({org_id:orgId,machine_id:p.machine_id,type:"preventive",priority:1,title:p.title,status:"done",reported_by:profile.id,started_at:new Date().toISOString(),finished_at:new Date().toISOString()});
+      refresh();
+    },
+    uploadDoc: async (machineId, file, category) => {
+      const path = `${orgId}/${machineId}/${Date.now()}_${file.name.replace(/[^a-zA-Z0-9._-]/g,"_")}`;
+      const {error:e1} = await sb.storage.from("docs").upload(path, file);
+      if (e1) { alert("Erreur upload : "+e1.message); return; }
+      await sb.from("machine_documents").insert({org_id:orgId,machine_id:machineId,category,name:file.name,storage_path:path,uploaded_by:profile.id});
+      refresh();
+    },
+    openDoc: async d => {
+      const {data,error} = await sb.storage.from("docs").createSignedUrl(d.storage_path, 3600);
+      if (error) { alert("Erreur d'accès au document"); return; }
+      window.open(data.signedUrl, "_blank");
+    },
+    deleteDoc: async d => {
+      if (!confirm(`Supprimer "${d.name}" ?`)) return;
+      await sb.storage.from("docs").remove([d.storage_path]);
+      await sb.from("machine_documents").delete().eq("id",d.id);
+      refresh();
+    },
+  };
+
+  /* --- KPI --- */
+  const kpi = useMemo(() => {
+    const pannes = machines.filter(m=>m.status==="alarm").length;
+    const ouvertes = interventions.filter(i=>i.status!=="done").length;
+    const done = interventions.filter(i=>i.started_at && i.finished_at);
+    const mttr = done.length ? Math.round(done.reduce((a,i)=>a+(new Date(i.finished_at)-new Date(i.started_at))/60000,0)/done.length) : null;
+    const retard = preventifs.filter(p=>p.active && p.next_due<=today()).length;
+    const d90 = new Date(Date.now()-90*864e5).toISOString();
+    const counts = {};
+    interventions.filter(i=>i.type==="curative" && i.reported_at>d90).forEach(i=>{counts[i.machine_id]=(counts[i.machine_id]||0)+1;});
+    const chroniques = Object.entries(counts).filter(([,n])=>n>=3).map(([mid,n])=>({m:machines.find(x=>x.id===mid),n}));
+    return {pannes,ouvertes,mttr,retard,chroniques};
+  }, [machines,interventions,preventifs]);
+
+  const machineName = id => machines.find(m=>m.id===id)?.name || "?";
+
+  if (error) return <Center><div style={{textAlign:"center"}}><div style={{color:"var(--alarm)",font:"600 14px system-ui",marginBottom:16}}>{error}</div><button className="btn" onClick={()=>sb.auth.signOut()}>Se déconnecter</button></div></Center>;
+  if (!profile || !orgId) return <Center>Chargement…</Center>;
+
+  const NAV = [["dashboard","Tableau de bord"],["parc","Parc machines"],["interventions","Interventions"],["preventif","Préventif"],["analyse","Analyse"],...(isSuper?[["admin","Admin clients"]]:[])];
+
+  return (
+    <div style={{display:"flex",minHeight:"100vh"}}>
+      <aside style={{width:210,background:"var(--ink)",display:"flex",flexDirection:"column",padding:"20px 0",position:"sticky",top:0,height:"100vh"}}>
+        <div style={{fontFamily:"var(--display)",fontSize:20,color:"#fff",padding:"0 16px 24px"}}>
+          <span style={{color:"var(--accent)",marginRight:6}}>▮▮</span>MAINT<span style={{color:"var(--accent)"}}>X</span>
+        </div>
+        {NAV.map(([k,label])=>(
+          <button key={k} className={"nav"+(view.name===k?" active":"")} onClick={()=>setView({name:k})}>{label}</button>
+        ))}
+        <div style={{marginTop:"auto",padding:12,font:"500 11px system-ui",color:"var(--muted)"}}>
+          {profile.full_name}<br/>{profile.role}
+          <button className="btn ghost" style={{width:"100%",marginTop:8,color:"#C9CCD1",borderColor:"#444"}} onClick={()=>sb.auth.signOut()}>Déconnexion</button>
+        </div>
+      </aside>
+
+      <main style={{flex:1,padding:"28px 36px",maxWidth:1100}}>
+        <header style={{display:"flex",justifyContent:"space-between",alignItems:"flex-end",marginBottom:24}}>
+          <div>
+            <div style={{font:"700 10px system-ui",textTransform:"uppercase",letterSpacing:".12em",color:"var(--muted)",marginBottom:4}}>
+              Plan {org?.plan==="connect"?"Connect · machines connectées":"Standard"}
+            </div>
+            <h1 style={{fontFamily:"var(--display)",fontSize:26,margin:0,textTransform:"uppercase"}}>{org?.name}</h1>
+          </div>
+          {isSuper && orgs.length>1 && (
+            <select className="inline" value={orgId} onChange={e=>{setOrgId(e.target.value);setView({name:"dashboard"});}} style={{width:"auto"}}>
+              {orgs.map(o=><option key={o.id} value={o.id}>{o.name}</option>)}
+            </select>
+          )}
+        </header>
+
+        {view.name==="dashboard" && <Dashboard machines={machines} interventions={interventions} kpi={kpi} machineName={machineName} db={db} setView={setView}/>}
+        {view.name==="parc" && <Parc machines={machines} setModal={setModal} setView={setView}/>}
+        {view.name==="machine" && <MachineDetail machine={machines.find(m=>m.id===view.id)} docs={docs.filter(d=>d.machine_id===view.id)} interventions={interventions.filter(i=>i.machine_id===view.id)} db={db} back={()=>setView({name:"parc"})}/>}
+        {view.name==="interventions" && <>
+          <Toolbar><H2>Interventions</H2><button className="btn" onClick={()=>setModal("intervention")}>+ Déclarer</button></Toolbar>
+          {interventions.map(i=><IRow key={i.id} i={i} machineName={machineName} db={db} full/>)}
+          {interventions.length===0 && <Empty>Aucune intervention déclarée.</Empty>}
+        </>}
+        {view.name==="preventif" && <Preventif preventifs={preventifs} machineName={machineName} db={db} setModal={setModal}/>}
+        {view.name==="analyse" && <Analyse machines={machines} interventions={interventions}/>}
+        {view.name==="admin" && isSuper && <>
+          <Toolbar><H2>Clients ({orgs.length})</H2><button className="btn" onClick={()=>setModal("org")}>+ Nouveau client</button></Toolbar>
+          {orgs.map(o=>(
+            <Row key={o.id}>
+              <div style={{flex:1}}><b>{o.name}</b><div style={{font:"500 12px system-ui",color:"var(--muted)"}}>plan {o.plan} · {o.slug}</div></div>
+              <button className="btn ghost sm" onClick={()=>{setOrgId(o.id);setView({name:"dashboard"});}}>Ouvrir →</button>
+            </Row>
+          ))}
+        </>}
+      </main>
+
+      {modal==="machine" && <MachineModal onClose={()=>setModal(null)} onSave={db.addMachine}/>}
+      {modal==="intervention" && <InterventionModal machines={machines} onClose={()=>setModal(null)} onSave={db.addIntervention}/>}
+      {modal==="org" && <OrgModal onClose={()=>setModal(null)} onSave={db.addOrg}/>}
+      {modal==="preventif" && <PreventifModal machines={machines} onClose={()=>setModal(null)} onSave={db.addPreventif}/>}
+    </div>
+  );
+}
+
+/* ------------------------- VUES ------------------------- */
+function Dashboard({machines,interventions,kpi,machineName,db,setView}) {
+  return <>
+    <div style={{display:"flex",gap:4,flexWrap:"wrap",background:"var(--panel)",padding:"14px 16px 10px",borderBottom:"3px solid var(--accent)",marginBottom:20}}>
+      {machines.length===0 && <span style={{font:"500 13px system-ui",color:"var(--muted)"}}>Aucune machine — ajoutez votre parc dans « Parc machines ».</span>}
+      {machines.map(m=>(
+        <div key={m.id} className="andon" title={`${m.name} — ${STATUS[m.status].label}`} onClick={()=>setView({name:"machine",id:m.id})}>
+          <span className={"lamp"+(m.status==="alarm"?" blink":"")} style={{background:STATUS[m.status].color}}/>
+          <span className="andon-code">{m.code||"—"}</span>
+        </div>
+      ))}
+    </div>
+    <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))",gap:12}}>
+      <Kpi label="Machines en panne" value={kpi.pannes} alert={kpi.pannes>0}/>
+      <Kpi label="Interventions ouvertes" value={kpi.ouvertes}/>
+      <Kpi label="MTTR moyen" value={kpi.mttr?kpi.mttr+" min":"—"}/>
+      <Kpi label="Préventifs en retard" value={kpi.retard} alert={kpi.retard>0}/>
+    </div>
+    {kpi.chroniques.length>0 && (
+      <div style={{background:"#FDECEA",border:"1px solid var(--alarm)",color:"var(--alarm)",padding:"12px 16px",margin:"16px 0",font:"600 13px system-ui"}}>
+        ⚠ Panne chronique : {kpi.chroniques.map(c=>`${c.m?.name} (${c.n} curatifs / 90 j)`).join(", ")}
+      </div>
+    )}
+    <H2>Dernières interventions</H2>
+    {interventions.slice(0,5).map(i=><IRow key={i.id} i={i} machineName={machineName} db={db}/>)}
+    {interventions.length===0 && <Empty>Aucune intervention pour l'instant.</Empty>}
+  </>;
+}
+
+function Parc({machines,setModal,setView}) {
+  return <>
+    <Toolbar><H2>Parc machines ({machines.length})</H2><button className="btn" onClick={()=>setModal("machine")}>+ Ajouter</button></Toolbar>
+    <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(240px,1fr))",gap:12}}>
+      {machines.map(m=>(
+        <div key={m.id} className="card" style={{display:"flex",flexDirection:"column",gap:10,cursor:"pointer"}} onClick={()=>setView({name:"machine",id:m.id})}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+            <div>
+              <div style={{font:"700 10px ui-monospace,monospace",color:"var(--muted)",textTransform:"uppercase"}}>{m.code} · {m.family}</div>
+              <div style={{fontWeight:800,fontSize:15,marginTop:2}}>{m.name}</div>
+            </div>
+            <span className={"lamp lg"+(m.status==="alarm"?" blink":"")} style={{background:STATUS[m.status].color}}/>
+          </div>
+          <div style={{font:"600 12px system-ui"}}>
+            <span style={{color:CRIT[m.criticality]?.color}}>{"▮".repeat(m.criticality)}{"▯".repeat(3-m.criticality)} {CRIT[m.criticality]?.label}</span>
+            <span style={{color:"var(--muted)"}}>{m.meta?.year?` · ${m.meta.year}`:""}</span>
+          </div>
+          <div style={{font:"600 11px system-ui",color:"var(--muted)"}}>Ouvrir la fiche →</div>
+        </div>
+      ))}
+    </div>
+    {machines.length===0 && <Empty>Ajoutez votre première machine avec le bouton ci-dessus.</Empty>}
+  </>;
+}
+
+/* ------------------------- FICHE MACHINE ------------------------- */
+function MachineDetail({machine,docs,interventions,db,back}) {
+  const [tab,setTab] = useState("infos");
+  if (!machine) return null;
+  return <>
+    <button className="btn ghost sm" onClick={back}>← Retour au parc</button>
+    <div style={{display:"flex",alignItems:"center",gap:16,margin:"16px 0 4px"}}>
+      <span className={"lamp lg"+(machine.status==="alarm"?" blink":"")} style={{background:STATUS[machine.status].color}}/>
+      <div>
+        <div style={{font:"700 11px ui-monospace,monospace",color:"var(--muted)",textTransform:"uppercase"}}>{machine.code} · {machine.family}</div>
+        <h2 style={{fontFamily:"var(--display)",fontSize:22,margin:0,textTransform:"uppercase"}}>{machine.name}</h2>
+      </div>
+      <select className="inline" style={{marginLeft:"auto"}} value={machine.status} onChange={e=>db.setMachineStatus(machine.id,e.target.value)}>
+        {Object.entries(STATUS).map(([k,v])=><option key={k} value={k}>{v.label}</option>)}
+      </select>
+    </div>
+    <div style={{borderBottom:"1.5px solid #D5D8DC",marginBottom:16}}>
+      {[["infos","Infos & specs"],["docs",`Documents (${docs.length})`],["histo",`Historique (${interventions.length})`],["qr","QR code"]].map(([k,l])=>(
+        <button key={k} className={"tab"+(tab===k?" active":"")} onClick={()=>setTab(k)}>{l}</button>
+      ))}
+    </div>
+    {tab==="infos" && <Specs machine={machine} db={db}/>}
+    {tab==="docs" && <Docs machine={machine} docs={docs} db={db}/>}
+    {tab==="histo" && <>
+      {interventions.map(i=><IRow key={i.id} i={i} machineName={()=>""} db={db} full/>)}
+      {interventions.length===0 && <Empty>Aucune intervention sur cette machine.</Empty>}
+    </>}
+    {tab==="qr" && <QRTab machine={machine}/>}
+  </>;
+}
+
+function Specs({machine,db}) {
+  const specs = machine.meta?.specs || {};
+  const [k,setK] = useState(""); const [v,setV] = useState("");
+  const save = obj => db.updateMachineMeta(machine.id, {...machine.meta, specs:obj});
+  return (
+    <div className="card" style={{maxWidth:560}}>
+      <div style={{font:"600 12px system-ui",color:"var(--muted)",marginBottom:12}}>
+        Caractéristiques techniques de la machine — adaptez librement selon sa technologie
+        (tension, pression pneumatique, type de CN, puissance, n° série…).
+      </div>
+      {Object.entries(specs).map(([key,val])=>(
+        <div key={key} style={{display:"flex",gap:8,alignItems:"center",padding:"6px 0",borderBottom:"1px solid #EEE"}}>
+          <b style={{width:180,font:"600 13px system-ui"}}>{key}</b>
+          <span style={{flex:1,font:"500 13px system-ui"}}>{val}</span>
+          <button className="btn ghost sm" onClick={()=>{const s={...specs};delete s[key];save(s);}}>✕</button>
+        </div>
+      ))}
+      {Object.keys(specs).length===0 && <Empty>Aucune caractéristique renseignée.</Empty>}
+      <div style={{display:"flex",gap:8,marginTop:12}}>
+        <input placeholder="Caractéristique (ex: Tension)" value={k} onChange={e=>setK(e.target.value)}/>
+        <input placeholder="Valeur (ex: 3×400V)" value={v} onChange={e=>setV(e.target.value)}/>
+        <button className="btn sm" disabled={!k||!v} onClick={()=>{save({...specs,[k]:v});setK("");setV("");}}>+</button>
+      </div>
+    </div>
+  );
+}
+
+function Docs({machine,docs,db}) {
+  const [cat,setCat] = useState("maintenance");
+  const fileRef = useRef();
+  return <>
+    <div className="card" style={{display:"flex",gap:10,alignItems:"center",marginBottom:14,flexWrap:"wrap"}}>
+      <b style={{font:"700 12px system-ui",textTransform:"uppercase"}}>Ajouter un document :</b>
+      <select className="inline" value={cat} onChange={e=>setCat(e.target.value)}>
+        {Object.entries(DOCCAT).map(([k,v])=><option key={k} value={k}>{v.label}</option>)}
+      </select>
+      <input type="file" ref={fileRef} style={{width:"auto",border:0,padding:0}}
+             onChange={e=>{const f=e.target.files[0]; if(f){db.uploadDoc(machine.id,f,cat); e.target.value="";}}}/>
+      <span style={{font:"500 11px system-ui",color:"var(--muted)"}}>PDF, schémas, notices… (max 50 Mo)</span>
+    </div>
+    {Object.entries(DOCCAT).map(([k,v])=>{
+      const list = docs.filter(d=>d.category===k);
+      if (!list.length) return null;
+      return (
+        <div key={k} style={{marginBottom:12}}>
+          <span className="doccat" style={{background:v.color}}>{v.label}</span>
+          {list.map(d=>(
+            <Row key={d.id}>
+              <div style={{flex:1,cursor:"pointer"}} onClick={()=>db.openDoc(d)}>
+                <b style={{font:"600 13px system-ui"}}>📄 {d.name}</b>
+                <div style={{font:"500 11px system-ui",color:"var(--muted)"}}>{d.created_at?.slice(0,10)}</div>
+              </div>
+              <button className="btn ghost sm" onClick={()=>db.openDoc(d)}>Ouvrir</button>
+              <button className="btn ghost sm" onClick={()=>db.deleteDoc(d)}>✕</button>
+            </Row>
+          ))}
+        </div>
+      );
+    })}
+    {docs.length===0 && <Empty>Aucun document. Ajoutez schémas électriques, pneumatiques, hydrauliques, notices de maintenance…</Empty>}
+  </>;
+}
+
+function QRTab({machine}) {
+  const ref = useRef();
+  const url = window.location.origin + window.location.pathname + "#/qr/" + machine.qr_token;
+  useEffect(() => {
+    ref.current.innerHTML = "";
+    new QRCode(ref.current, {text:url, width:180, height:180, correctLevel:QRCode.CorrectLevel.M});
+  }, [machine.id]);
+  const print = () => {
+    const img = ref.current.querySelector("img")?.src || ref.current.querySelector("canvas")?.toDataURL();
+    const w = window.open("","_blank","width=400,height=520");
+    w.document.write(`<div style="text-align:center;font-family:sans-serif;padding:20px">
+      <div style="font-weight:900;font-size:20px">⚠ PANNE MACHINE ?</div>
+      <div style="font-size:13px;margin:4px 0 14px">Scannez pour prévenir la maintenance</div>
+      <img src="${img}" style="width:220px"/>
+      <div style="font-weight:800;font-size:16px;margin-top:12px">${machine.code||""} — ${machine.name}</div>
+      <div style="font-size:11px;color:#888;margin-top:16px">MaintX</div>
+    </div>`);
+    w.document.close(); w.focus(); setTimeout(()=>w.print(), 300);
+  };
+  return (
+    <div className="card" style={{maxWidth:420,textAlign:"center"}}>
+      <div ref={ref} style={{display:"inline-block",padding:12,background:"#fff"}}/>
+      <div style={{font:"700 14px system-ui",marginTop:8}}>{machine.code} — {machine.name}</div>
+      <div style={{font:"500 11px system-ui",color:"var(--muted)",margin:"6px 0 14px",wordBreak:"break-all"}}>{url}</div>
+      <button className="btn" onClick={print}>🖨 Imprimer l'étiquette</button>
+      <div style={{font:"500 11px system-ui",color:"var(--muted)",marginTop:12}}>
+        À coller sur la machine. Toute personne qui scanne peut déclarer une panne, sans compte.
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------- PRÉVENTIF ------------------------- */
+function Preventif({preventifs,machineName,db,setModal}) {
+  return <>
+    <Toolbar><H2>Gammes préventives</H2><button className="btn" onClick={()=>setModal("preventif")}>+ Nouvelle gamme</button></Toolbar>
+    {preventifs.map(p=>{
+      const late = p.active && p.next_due<=today();
+      return (
+        <Row key={p.id} style={{borderLeft:`4px solid ${late?"var(--alarm)":"var(--run)"}`}}>
+          <div style={{flex:1}}>
+            <b>{p.title}</b>
+            <div style={{font:"500 12px system-ui",color:"var(--muted)",marginTop:2}}>{machineName(p.machine_id)} · tous les {p.freq_days} j</div>
+          </div>
+          <div style={{textAlign:"right"}}>
+            <div style={{fontWeight:700,color:late?"var(--alarm)":"var(--ink)"}}>{p.next_due}</div>
+            <div style={{font:"500 12px system-ui",color:"var(--muted)"}}>{late?"EN RETARD":"planifié"}</div>
+          </div>
+          <button className="btn sm" onClick={()=>db.donePreventif(p)}>✓ Fait</button>
+        </Row>
+      );
+    })}
+    {preventifs.length===0 && <Empty>Aucune gamme préventive — créez la première avec le bouton ci-dessus.</Empty>}
+  </>;
+}
+
+/* ------------------------- ANALYSE ------------------------- */
+function Analyse({machines,interventions}) {
+  const doneWithTime = interventions.filter(i=>i.started_at&&i.finished_at);
+  // Temps d'arrêt par machine (min)
+  const downtimeByMachine = machines.map(m=>({
+    label: m.code||m.name.slice(0,10),
+    value: Math.round(doneWithTime.filter(i=>i.machine_id===m.id).reduce((a,i)=>a+(new Date(i.finished_at)-new Date(i.started_at))/60000,0))
+  })).filter(x=>x.value>0).sort((a,b)=>b.value-a.value).slice(0,8);
+  // Interventions par mois (6 derniers)
+  const months = [...Array(6)].map((_,k)=>{
+    const d = new Date(); d.setMonth(d.getMonth()-(5-k));
+    const key = d.toISOString().slice(0,7);
+    return {label:key.slice(5)+"/"+key.slice(2,4), value:interventions.filter(i=>i.reported_at?.slice(0,7)===key).length};
+  });
+  // Répartition par type
+  const byType = Object.entries(ITYPE).map(([k,v])=>({label:v, value:interventions.filter(i=>i.type===k).length})).filter(x=>x.value>0);
+  const total = interventions.length;
+
+  return <>
+    <H2>Temps d'arrêt par machine (minutes)</H2>
+    <BarChart data={downtimeByMachine} color="var(--alarm)" empty="Pas encore de temps d'arrêt mesuré — passez des interventions En cours → Clôturée."/>
+    <H2>Interventions par mois</H2>
+    <BarChart data={months} color="var(--ink)"/>
+    <H2>Répartition par type</H2>
+    {total>0 ? (
+      <div className="card" style={{maxWidth:560}}>
+        {byType.map(t=>(
+          <div key={t.label} style={{margin:"8px 0"}}>
+            <div style={{display:"flex",justifyContent:"space-between",font:"600 12px system-ui",marginBottom:3}}>
+              <span>{t.label}</span><span>{t.value} ({Math.round(100*t.value/total)}%)</span>
+            </div>
+            <div style={{background:"var(--bg)",height:12}}>
+              <div style={{width:(100*t.value/total)+"%",height:"100%",background:t.label==="Curatif"?"var(--alarm)":t.label==="Préventif"?"var(--run)":"var(--warn)"}}/>
+            </div>
+          </div>
+        ))}
+        <div style={{font:"500 11px system-ui",color:"var(--muted)",marginTop:10}}>
+          Objectif d'une bonne maintenance : faire monter la part de préventif au-dessus du curatif.
+        </div>
+      </div>
+    ) : <Empty>Pas encore de données.</Empty>}
+  </>;
+}
+
+function BarChart({data,color,empty}) {
+  if (!data.length || data.every(d=>!d.value)) return <Empty>{empty||"Pas encore de données."}</Empty>;
+  const max = Math.max(...data.map(d=>d.value),1);
+  const W=560, H=180, pad=26, bw=Math.min(56,(W-pad)/data.length-10);
+  return (
+    <div className="card" style={{maxWidth:W+32}}>
+      <svg viewBox={`0 0 ${W} ${H+30}`} style={{width:"100%"}}>
+        {data.map((d,k)=>{
+          const h = Math.round((d.value/max)*(H-pad));
+          const x = pad + k*((W-pad)/data.length);
+          return (
+            <g key={k}>
+              <rect x={x} y={H-h} width={bw} height={h} fill={color}/>
+              <text x={x+bw/2} y={H-h-6} textAnchor="middle" style={{font:"700 12px system-ui"}}>{d.value}</text>
+              <text x={x+bw/2} y={H+16} textAnchor="middle" style={{font:"600 10px system-ui",fill:"#8A8F98"}}>{d.label}</text>
+            </g>
+          );
+        })}
+      </svg>
+    </div>
+  );
+}
+
+/* ------------------- Petits composants ------------------- */
+const H2 = ({children}) => <h2 style={{fontFamily:"var(--display)",fontSize:15,textTransform:"uppercase",letterSpacing:".05em",margin:"28px 0 12px"}}>{children}</h2>;
+const Toolbar = ({children}) => <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>{children}</div>;
+const Empty = ({children}) => <div style={{font:"500 13px system-ui",color:"var(--muted)",padding:"20px 0"}}>{children}</div>;
+const Row = ({children,style}) => <div style={{background:"var(--panel)",padding:"12px 16px",display:"flex",alignItems:"center",gap:12,marginBottom:8,...style}}>{children}</div>;
+
+function Kpi({label,value,alert}) {
+  return (
+    <div style={{background:"var(--panel)",padding:"18px 16px 14px",borderTop:`4px solid ${alert?"var(--alarm)":"var(--ink)"}`}}>
+      <div style={{fontFamily:"var(--display)",fontSize:30,lineHeight:1}}>{value}</div>
+      <div style={{font:"600 11px system-ui",textTransform:"uppercase",letterSpacing:".07em",color:"var(--muted)",marginTop:6}}>{label}</div>
+    </div>
+  );
+}
+
+function IRow({i,machineName,db,full}) {
+  const prioC = i.priority===3?"var(--alarm)":i.priority===2?"var(--warn)":"var(--muted)";
+  return (
+    <Row style={{borderLeft:`4px solid ${prioC}`}}>
+      <div style={{flex:1}}>
+        <b>{i.title}</b>
+        <div style={{font:"500 12px system-ui",color:"var(--muted)",marginTop:2}}>
+          {machineName(i.machine_id)} {machineName(i.machine_id)?"· ":""}{ITYPE[i.type]} · {i.reported_at?.slice(0,10)}
+        </div>
+      </div>
+      {full ? (
+        <select className="inline" value={i.status} onChange={e=>db.setInterventionStatus(i.id,e.target.value)}>
+          {Object.entries(ISTATUS).map(([k,v])=><option key={k} value={k}>{v}</option>)}
+        </select>
+      ) : (
+        <span style={{color:"#fff",font:"700 10px system-ui",textTransform:"uppercase",padding:"5px 10px",background:i.status==="done"?"var(--run)":"var(--ink)"}}>{ISTATUS[i.status]}</span>
+      )}
+    </Row>
+  );
+}
+
+function Modal({title,children,onClose}) {
+  return (
+    <div style={{position:"fixed",inset:0,background:"rgba(27,29,33,.55)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:50}} onClick={onClose}>
+      <div style={{background:"#fff",padding:24,width:420,maxWidth:"92vw",borderTop:"5px solid var(--accent)"}} onClick={e=>e.stopPropagation()}>
+        <h3 style={{margin:"0 0 16px",fontFamily:"var(--display)",textTransform:"uppercase",letterSpacing:".04em"}}>{title}</h3>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function MachineModal({onClose,onSave}) {
+  const [f,setF] = useState({name:"",code:"",family:"CN fraisage",crit:2,year:""});
+  return (
+    <Modal title="Ajouter une machine" onClose={onClose}>
+      <input placeholder="Nom (ex: Mori Seiki M300L)" value={f.name} onChange={e=>setF({...f,name:e.target.value})} style={{marginBottom:10}}/>
+      <input placeholder="Code parc (ex: FR-08)" value={f.code} onChange={e=>setF({...f,code:e.target.value})} style={{marginBottom:10}}/>
+      <input placeholder="Famille (ex: Tour CN)" value={f.family} onChange={e=>setF({...f,family:e.target.value})} style={{marginBottom:10}}/>
+      <input placeholder="Année (optionnel)" value={f.year} onChange={e=>setF({...f,year:e.target.value})} style={{marginBottom:10}}/>
+      <label style={{font:"600 12px system-ui"}}>Criticité : <span style={{color:CRIT[f.crit].color}}>{CRIT[f.crit].label}</span></label>
+      <input type="range" min="1" max="3" value={f.crit} onChange={e=>setF({...f,crit:+e.target.value})} style={{border:0,padding:0}}/>
+      <div style={{font:"500 11px system-ui",color:"var(--muted)",marginBottom:4}}>{CRIT[f.crit].desc}</div>
+      <button className="btn" disabled={!f.name} onClick={()=>onSave(f)} style={{width:"100%",marginTop:12}}>Enregistrer</button>
+    </Modal>
+  );
+}
+
+function InterventionModal({machines,onClose,onSave}) {
+  const [f,setF] = useState({machine:machines[0]?.id,type:"curative",prio:2,title:""});
+  return (
+    <Modal title="Déclarer une intervention" onClose={onClose}>
+      <select value={f.machine} onChange={e=>setF({...f,machine:e.target.value})} style={{marginBottom:10}}>
+        {machines.map(m=><option key={m.id} value={m.id}>{m.code} — {m.name}</option>)}
+      </select>
+      <select value={f.type} onChange={e=>setF({...f,type:e.target.value})} style={{marginBottom:10}}>
+        {Object.entries(ITYPE).map(([k,v])=><option key={k} value={k}>{v}</option>)}
+      </select>
+      <input placeholder="Description du problème" value={f.title} onChange={e=>setF({...f,title:e.target.value})} style={{marginBottom:10}}/>
+      <label style={{font:"500 12px system-ui",color:"var(--muted)"}}>Priorité : {f.prio}/3</label>
+      <input type="range" min="1" max="3" value={f.prio} onChange={e=>setF({...f,prio:+e.target.value})} style={{border:0,padding:0}}/>
+      <button className="btn" disabled={!f.title||!f.machine} onClick={()=>onSave(f)} style={{width:"100%",marginTop:12}}>Déclarer</button>
+    </Modal>
+  );
+}
+
+function PreventifModal({machines,onClose,onSave}) {
+  const [f,setF] = useState({machine:machines[0]?.id,title:"",freq:30,next:today()});
+  return (
+    <Modal title="Nouvelle gamme préventive" onClose={onClose}>
+      <select value={f.machine} onChange={e=>setF({...f,machine:e.target.value})} style={{marginBottom:10}}>
+        {machines.map(m=><option key={m.id} value={m.id}>{m.code} — {m.name}</option>)}
+      </select>
+      <input placeholder="Titre (ex: Contrôle niveaux + graissage)" value={f.title} onChange={e=>setF({...f,title:e.target.value})} style={{marginBottom:10}}/>
+      <label style={{font:"500 12px system-ui",color:"var(--muted)"}}>Périodicité (jours)</label>
+      <input type="number" min="1" value={f.freq} onChange={e=>setF({...f,freq:+e.target.value})} style={{marginBottom:10}}/>
+      <label style={{font:"500 12px system-ui",color:"var(--muted)"}}>Première échéance</label>
+      <input type="date" value={f.next} onChange={e=>setF({...f,next:e.target.value})} style={{marginBottom:10}}/>
+      <button className="btn" disabled={!f.title||!f.machine} onClick={()=>onSave(f)} style={{width:"100%",marginTop:6}}>Créer</button>
+    </Modal>
+  );
+}
+
+function OrgModal({onClose,onSave}) {
+  const [name,setName] = useState("");
+  return (
+    <Modal title="Nouveau client" onClose={onClose}>
+      <input placeholder="Nom de l'entreprise" value={name} onChange={e=>setName(e.target.value)} style={{marginBottom:12}}/>
+      <button className="btn" disabled={!name} onClick={()=>onSave(name)} style={{width:"100%"}}>Créer</button>
+    </Modal>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<Root/>);
+</script>
+</body>
+</html>
