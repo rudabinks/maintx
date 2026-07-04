@@ -167,6 +167,26 @@ function QRPage({token}) {
   const [state,setState] = useState("form"); // form | sending | done | error
   const [track,setTrack] = useState(null);
   const [canRun,setCanRun] = useState(null); // true = peut tourner (dégradé), false = arrêtée (panne)
+  const [rec,setRec] = useState(false);
+  const recRef = useRef(null);
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const dictate = () => {
+    if (rec) { const r=recRef.current; recRef.current=null; setRec(false); r?.stop(); return; }
+    const r = new SR();
+    r.lang = "fr-FR"; r.continuous = true; r.interimResults = true;
+    let base = desc ? desc+" " : "";
+    r.onresult = e => {
+      let final = base, interim = "";
+      for (let k=e.resultIndex; k<e.results.length; k++) {
+        if (e.results[k].isFinal) { final += e.results[k][0].transcript + " "; base = final; }
+        else interim += e.results[k][0].transcript;
+      }
+      setDesc((final+interim).trim());
+    };
+    r.onend = () => setRec(false);
+    r.onerror = () => setRec(false);
+    recRef.current = r; r.start(); setRec(true);
+  };
   useEffect(() => { (async () => {
     const {data,error} = await sb.rpc("qr_get_machine",{qr:token});
     setMachine(error || !data?.length ? null : data[0]);
@@ -211,7 +231,12 @@ function QRPage({token}) {
         ) : (
           <>
             <textarea placeholder="Décrivez le problème (ex: alarme broche, fuite d'huile…)" rows={3}
-                      value={desc} onChange={e=>setDesc(e.target.value)} style={{marginBottom:10}}/>
+                      value={desc} onChange={e=>setDesc(e.target.value)} style={{marginBottom:8}}/>
+            {SR && (
+              <button type="button" className="btn ghost" style={{width:"100%",marginBottom:10,...(rec?{borderColor:"var(--alarm)",color:"var(--alarm)"}:{})}} onClick={dictate}>
+                {rec ? "⏹ Arrêter la dictée" : "🎙️ Décrire à la voix"}
+              </button>
+            )}
             <div style={{font:"600 12px system-ui",marginBottom:6}}>La machine peut-elle encore tourner ?</div>
             <div style={{display:"flex",gap:8,marginBottom:12}}>
               <button type="button" onClick={()=>setCanRun(false)}
@@ -254,8 +279,10 @@ function TrackPage({token}) {
   if (t === undefined) return <Center>Chargement…</Center>;
   if (t === null) return <Center><div style={{font:"600 14px system-ui",color:"var(--alarm)"}}>Lien de suivi invalide.</div></Center>;
   const fmt = d => d ? d.slice(0,16).replace("T"," à ") : null;
+  const seen = !!(t.acked_at || t.started_at || ["in_progress","waiting_parts","done"].includes(t.status));
   const steps = [
     {label:"Panne déclarée", done:true, at:fmt(t.reported_at), desc:"L'équipe maintenance est prévenue."},
+    {label:"Prise en compte", done:seen, at:fmt(t.acked_at), desc:"Le technicien a vu votre signalement, la réparation sera planifiée."},
     t.status==="waiting_parts"
       ? {label:"En attente de pièces", done:true, at:null, desc:"La réparation reprendra à réception des pièces."}
       : {label:"Réparation en cours", done:t.status==="in_progress"||t.status==="done"||!!t.started_at, at:fmt(t.started_at), desc:"Un technicien est sur la machine."},
@@ -368,12 +395,14 @@ function App({session}) {
     addMachine: async f => { await sb.from("machines").insert({org_id:orgId,name:f.name,code:f.code,family:f.family,criticality:f.crit,meta:{year:f.year,specs:{}}}); refresh(); setModal(null); },
     updateMachineMeta: async (id,meta) => { await sb.from("machines").update({meta}).eq("id",id); refresh(); },
     addIntervention: async f => { await sb.from("interventions").insert({org_id:orgId,machine_id:f.machine,type:f.type,priority:f.prio,title:f.title,reported_by:profile.id}); refresh(); setModal(null); },
-    setInterventionStatus: async (id,st) => {
+    setInterventionStatus: async (i,st) => {
       const patch = {status:st};
+      if (st!=="open" && !i.acked_at) patch.acked_at = new Date().toISOString();
       if (st==="in_progress") patch.started_at = new Date().toISOString();
       if (st==="done") patch.finished_at = new Date().toISOString();
-      await sb.from("interventions").update(patch).eq("id",id); refresh();
+      await sb.from("interventions").update(patch).eq("id",i.id); refresh();
     },
+    ackIntervention: async i => { await sb.from("interventions").update({acked_at:new Date().toISOString()}).eq("id",i.id); refresh(); },
     setMachineStatus: async (id,st) => { await sb.from("machines").update({status:st,degraded_conditions:null,degraded_deadline:null}).eq("id",id); refresh(); },
     setDegraded: async (id,conditions,deadline) => { await sb.from("machines").update({status:"degraded",degraded_conditions:conditions,degraded_deadline:deadline}).eq("id",id); refresh(); },
     setInterventionCause: async (id,cause) => { await sb.from("interventions").update({failure_cause:cause}).eq("id",id); refresh(); },
@@ -1142,6 +1171,9 @@ function IRow({i,machineName,db,full,parts}) {
             {i.failure_cause && <span style={{color:FAILCAUSE[i.failure_cause]?.color,fontWeight:700}}> · {FAILCAUSE[i.failure_cause]?.label}</span>}
           </div>
         </div>
+        {full && !i.acked_at && i.status==="open" && (
+          <button className="btn sm" title="L'opérateur verra « Prise en compte » sur son suivi" onClick={()=>db.ackIntervention(i)}>👁 Pris en compte</button>
+        )}
         {full && i.type==="curative" && (
           <Dropdown width={165} align="right" value={i.failure_cause} placeholder="Cause ?"
                     options={Object.entries(FAILCAUSE).map(([k,v])=>({value:k,label:v.label,color:v.color}))}
@@ -1150,7 +1182,7 @@ function IRow({i,machineName,db,full,parts}) {
         {full ? (
           <Dropdown width={170} align="right" value={i.status}
                     options={Object.entries(ISTATUS).map(([k,v])=>({value:k,label:v.label,color:v.color}))}
-                    onChange={st=>db.setInterventionStatus(i.id,st)}/>
+                    onChange={st=>db.setInterventionStatus(i,st)}/>
         ) : (
           <span style={{color:"#fff",font:"700 10px system-ui",textTransform:"uppercase",padding:"5px 10px",background:i.status==="done"?"var(--run)":"var(--ink)"}}>{ISTATUS[i.status].label}</span>
         )}
@@ -1209,7 +1241,7 @@ function VoiceReport({i,onApplied,db}) {
     if (prop.actions_restantes) body += "\nReste à faire : "+prop.actions_restantes;
     await db.addComment(i.id, body);
     if (prop.cause && i.type==="curative") await db.setInterventionCause(i.id, prop.cause);
-    await db.setInterventionStatus(i.id, prop.repare ? "done" : (i.status==="open" ? "in_progress" : i.status));
+    await db.setInterventionStatus(i, prop.repare ? "done" : (i.status==="open" ? "in_progress" : i.status));
     setProp(null); setText(""); setState("idle");
     onApplied && onApplied();
   };

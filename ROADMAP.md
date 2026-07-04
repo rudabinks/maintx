@@ -17,6 +17,9 @@ plus. En cas de doute : moins de clics, moins de champs, plus gros boutons.
 - [x] v0.7 : page QR — question "la machine peut-elle encore tourner ?" : oui →
       statut dégradé (jaune, priorité 2), non → panne (rouge, priorité 3)
       (patch-v07.sql : qr_declare avec p_can_run)
+- [x] v0.8 : étape "Prise en compte" dans le suivi public (bouton 👁 côté
+      technicien, auto si changement de statut ; patch-v08.sql : acked_at)
+      + dictée vocale sur la page QR (Web Speech, remplit la description)
 
 ## ✅ Vague 2 — fondamentaux (v0.5, patch-v05.sql exécuté)
 
