@@ -14,6 +14,9 @@ plus. En cas de doute : moins de clics, moins de champs, plus gros boutons.
 - [x] UI : menus déroulants custom style atelier (pastilles andon, plus de select natif)
 - [x] v0.4 : checklists préventives (validation partielle tracée), photos interventions,
       cause de panne + Pareto, fil de commentaires (patch-v04.sql exécuté)
+- [x] v0.7 : page QR — question "la machine peut-elle encore tourner ?" : oui →
+      statut dégradé (jaune, priorité 2), non → panne (rouge, priorité 3)
+      (patch-v07.sql : qr_declare avec p_can_run)
 
 ## ✅ Vague 2 — fondamentaux (v0.5, patch-v05.sql exécuté)
 
@@ -56,9 +59,11 @@ plus. En cas de doute : moins de clics, moins de champs, plus gros boutons.
 
 ## 🤖 Lot C — IA atelier (Edge Functions Supabase, ~5-8 €/mois/client max)
 
-- [ ] **Mode mains sales** ⭐ priorité de Lilian : le technicien dicte son compte rendu
-      (gants/mains sales), Whisper transcrit, LLM structure (compte rendu, cause,
-      pièces mentionnées, durée) et remplit le bon d'intervention
+- [x] **Mode mains sales** ⭐ (v0.7) : dictée navigateur (Web Speech, gratuite,
+      Chrome/Edge/mobile ; saisie clavier en secours sur Firefox) → Edge Function
+      voice-report (Claude Haiku) → compte rendu structuré proposé (résumé, cause,
+      réparé ou non, pièces, reste à faire) que le technicien valide en 1 tap.
+      ⚠ Déploiement requis : fonction voice-report + secret ANTHROPIC_API_KEY
 - [ ] **Docteur Panne** : photo au moment du scan QR → vision IA propose cause,
       gravité, pré-remplit la déclaration (lit les codes erreur des écrans CN)
 - [ ] **Mécano (RAG)** : assistant français qui a lu les manuels uploadés, réponses

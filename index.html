@@ -166,13 +166,14 @@ function QRPage({token}) {
   const [desc,setDesc] = useState("");
   const [state,setState] = useState("form"); // form | sending | done | error
   const [track,setTrack] = useState(null);
+  const [canRun,setCanRun] = useState(null); // true = peut tourner (dégradé), false = arrêtée (panne)
   useEffect(() => { (async () => {
     const {data,error} = await sb.rpc("qr_get_machine",{qr:token});
     setMachine(error || !data?.length ? null : data[0]);
   })(); }, []);
   const send = async () => {
     setState("sending");
-    const {data,error} = await sb.rpc("qr_declare",{qr:token, p_title:desc, p_name:name});
+    const {data,error} = await sb.rpc("qr_declare",{qr:token, p_title:desc, p_name:name, p_can_run:canRun===true});
     if (!error && data) setTrack(data);
     setState(error ? "error" : "done");
   };
@@ -211,10 +212,25 @@ function QRPage({token}) {
           <>
             <textarea placeholder="Décrivez le problème (ex: alarme broche, fuite d'huile…)" rows={3}
                       value={desc} onChange={e=>setDesc(e.target.value)} style={{marginBottom:10}}/>
+            <div style={{font:"600 12px system-ui",marginBottom:6}}>La machine peut-elle encore tourner ?</div>
+            <div style={{display:"flex",gap:8,marginBottom:12}}>
+              <button type="button" onClick={()=>setCanRun(false)}
+                      style={{flex:1,padding:"12px 6px",cursor:"pointer",font:"700 13px system-ui",
+                              border:canRun===false?"2px solid var(--alarm)":"1.5px solid #D5D8DC",
+                              background:canRun===false?"#FDECEA":"#fff",color:canRun===false?"var(--alarm)":"var(--ink)"}}>
+                🔴 Non, arrêtée
+              </button>
+              <button type="button" onClick={()=>setCanRun(true)}
+                      style={{flex:1,padding:"12px 6px",cursor:"pointer",font:"700 13px system-ui",
+                              border:canRun===true?"2px solid var(--accent)":"1.5px solid #D5D8DC",
+                              background:canRun===true?"#FFF7DB":"#fff"}}>
+                🟡 Oui, elle tourne
+              </button>
+            </div>
             <input placeholder="Votre nom (optionnel)" value={name} onChange={e=>setName(e.target.value)} style={{marginBottom:14}}/>
             {state === "error" && <div style={{color:"var(--alarm)",font:"600 12px system-ui",marginBottom:10}}>Erreur d'envoi — réessayez.</div>}
-            <button className="btn" style={{width:"100%",padding:"14px"}} disabled={!desc || state==="sending"} onClick={send}>
-              {state === "sending" ? "Envoi…" : "🔴 Déclarer la panne"}
+            <button className="btn" style={{width:"100%",padding:"14px"}} disabled={!desc || canRun===null || state==="sending"} onClick={send}>
+              {state === "sending" ? "Envoi…" : "Déclarer la panne"}
             </button>
           </>
         )}
@@ -1145,6 +1161,97 @@ function IRow({i,machineName,db,full,parts}) {
   );
 }
 
+function VoiceReport({i,onApplied,db}) {
+  const [state,setState] = useState("idle"); // idle | rec | busy | review
+  const [text,setText] = useState("");
+  const [prop,setProp] = useState(null);
+  const [err,setErr] = useState(null);
+  const recRef = useRef(null);
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const start = () => {
+    setErr(null);
+    const r = new SR();
+    r.lang = "fr-FR"; r.continuous = true; r.interimResults = true;
+    let final = text ? text+" " : "";
+    r.onresult = e => {
+      let interim = "";
+      for (let k=e.resultIndex; k<e.results.length; k++) {
+        if (e.results[k].isFinal) final += e.results[k][0].transcript + " ";
+        else interim += e.results[k][0].transcript;
+      }
+      setText((final+interim).trim());
+    };
+    r.onerror = ev => { setErr("Micro : "+ev.error); setState("idle"); };
+    r.onend = () => setState(s=>s==="rec"?"idle":s);
+    recRef.current = r; r.start(); setState("rec");
+  };
+  const stop = () => { const r=recRef.current; recRef.current=null; setState("idle"); r?.stop(); };
+  const analyze = async () => {
+    setState("busy"); setErr(null);
+    try {
+      const res = await fetch(SUPABASE_URL+"/functions/v1/voice-report", {
+        method:"POST",
+        headers:{"Content-Type":"application/json","Authorization":"Bearer "+SUPABASE_KEY,"apikey":SUPABASE_KEY},
+        body:JSON.stringify({transcript:text, title:i.title}),
+      });
+      const p = await res.json();
+      if (!res.ok || p.error) throw new Error(p.error||res.status);
+      setProp(p); setState("review");
+    } catch(e) {
+      setErr("Analyse impossible. La fonction voice-report est-elle déployée avec sa clé API ?");
+      setState("idle");
+    }
+  };
+  const apply = async () => {
+    setState("busy");
+    let body = "🎙️ "+prop.resume;
+    if (prop.pieces?.length) body += "\nPièces : "+prop.pieces.join(", ");
+    if (prop.actions_restantes) body += "\nReste à faire : "+prop.actions_restantes;
+    await db.addComment(i.id, body);
+    if (prop.cause && i.type==="curative") await db.setInterventionCause(i.id, prop.cause);
+    await db.setInterventionStatus(i.id, prop.repare ? "done" : (i.status==="open" ? "in_progress" : i.status));
+    setProp(null); setText(""); setState("idle");
+    onApplied && onApplied();
+  };
+  return (
+    <div style={{border:"1.5px dashed #C9CCD1",padding:"10px 12px",marginBottom:12,background:"#fff"}}>
+      <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+        <b style={{font:"700 11px system-ui",textTransform:"uppercase",letterSpacing:".06em"}}>🎙️ Mode mains sales</b>
+        {SR ? (
+          state==="rec"
+            ? <button className="btn sm" style={{background:"var(--alarm)",color:"#fff"}} onClick={stop}>⏹ Stop</button>
+            : <button className="btn sm" onClick={start} disabled={state==="busy"}>Dicter</button>
+        ) : <span style={{font:"500 11px system-ui",color:"var(--muted)"}}>Dictée non supportée sur ce navigateur (Chrome/Edge ou téléphone) — tapez le texte :</span>}
+        {state==="rec" && <span style={{color:"var(--alarm)",font:"700 12px system-ui"}}>● Enregistrement… parlez</span>}
+        <button className="btn sm" disabled={!text.trim()||state==="busy"||state==="rec"} onClick={analyze}>
+          {state==="busy" ? "Analyse…" : "✨ Analyser"}
+        </button>
+      </div>
+      {(text || state==="rec" || !SR) && (
+        <textarea rows={2} value={text} onChange={e=>setText(e.target.value)} style={{marginTop:8}}
+                  placeholder="Ex : j'ai remplacé le roulement côté moteur, c'était encrassé, la machine est repartie, prévoir de recommander la référence 6205"/>
+      )}
+      {err && <div style={{color:"var(--alarm)",font:"600 12px system-ui",marginTop:6}}>{err}</div>}
+      {state==="review" && prop && (
+        <div style={{background:"var(--bg)",padding:"10px 12px",marginTop:8}}>
+          <div style={{font:"700 11px system-ui",textTransform:"uppercase",color:"var(--muted)",marginBottom:4}}>Proposition de l'IA</div>
+          <div style={{font:"500 13px system-ui",whiteSpace:"pre-wrap"}}>{prop.resume}</div>
+          <div style={{font:"600 12px system-ui",marginTop:8,display:"flex",gap:12,flexWrap:"wrap"}}>
+            {prop.cause && <span>Cause : <b style={{color:FAILCAUSE[prop.cause]?.color}}>{FAILCAUSE[prop.cause]?.label||prop.cause}</b></span>}
+            <span>{prop.repare ? "✅ Machine réparée → l'intervention sera clôturée" : "🔧 Non réparée → passera « En cours »"}</span>
+          </div>
+          {prop.pieces?.length>0 && <div style={{font:"500 12px system-ui",marginTop:4}}>Pièces : {prop.pieces.join(", ")}</div>}
+          {prop.actions_restantes && <div style={{font:"500 12px system-ui",marginTop:4}}>Reste à faire : {prop.actions_restantes}</div>}
+          <div style={{display:"flex",gap:8,marginTop:10}}>
+            <button className="btn sm" onClick={apply}>✓ Valider</button>
+            <button className="btn ghost sm" onClick={()=>{setProp(null);setState("idle");}}>Annuler</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function InterventionDetail({i,db,parts}) {
   const [comments,setComments] = useState(null);
   const [txt,setTxt] = useState("");
@@ -1161,6 +1268,7 @@ function InterventionDetail({i,db,parts}) {
   return (
     <div style={{background:"#F6F7F8",borderLeft:"4px solid #D5D8DC",padding:"12px 16px"}}>
       {i.description && <div style={{font:"500 13px system-ui",whiteSpace:"pre-wrap",marginBottom:10}}>{i.description}</div>}
+      <VoiceReport i={i} db={db} onApplied={load}/>
       <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center",marginBottom:12}}>
         {photos.map((ph,k)=>(
           <button key={k} className="btn ghost sm" onClick={()=>db.openPhoto(ph.path)}>📷 {ph.name?.length>20?ph.name.slice(0,20)+"…":ph.name||("photo "+(k+1))}</button>
