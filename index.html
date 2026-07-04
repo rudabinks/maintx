@@ -106,6 +106,13 @@ const planHoursDue = (p,machines) => {
   return !!(p.freq_hours && m && +m.meter_hours >= +p.last_done_hours + +p.freq_hours);
 };
 const partLow = p => +p.min_qty>0 && +p.qty<=+p.min_qty;
+const isoWeek = () => {
+  const d = new Date();
+  const t = new Date(Date.UTC(d.getFullYear(),d.getMonth(),d.getDate()));
+  const day = t.getUTCDay()||7; t.setUTCDate(t.getUTCDate()+4-day);
+  const y0 = new Date(Date.UTC(t.getUTCFullYear(),0,1));
+  return t.getUTCFullYear()+"-S"+String(Math.ceil((((t-y0)/864e5)+1)/7)).padStart(2,"0");
+};
 
 // Score de forme machine 0-100 (heuristique sans capteurs, façon Whoop)
 function computeHealth(machine, its, plans) {
@@ -384,7 +391,7 @@ function App({session}) {
     if (!orgId) return;
     const [m,i,p,d,pa] = await Promise.all([
       sb.from("machines").select("*").eq("org_id",orgId).order("code"),
-      sb.from("interventions").select("*").eq("org_id",orgId).order("reported_at",{ascending:false}),
+      sb.from("interventions").select("*").eq("org_id",orgId).is("duplicate_of",null).order("reported_at",{ascending:false}),
       sb.from("preventive_plans").select("*").eq("org_id",orgId).order("next_due"),
       sb.from("machine_documents").select("*").eq("org_id",orgId).order("created_at",{ascending:false}),
       sb.from("parts").select("*").eq("org_id",orgId).order("name"),
@@ -409,6 +416,25 @@ function App({session}) {
     deleteIntervention: async i => {
       if (!confirm(`Supprimer l'intervention "${i.title}" ? (photos et commentaires inclus)`)) return;
       await sb.from("interventions").delete().eq("id",i.id); refresh();
+    },
+    triage: async (i,st) => {
+      const patch = {triage:st};
+      if (st==="deferred") patch.priority = 1;
+      await sb.from("interventions").update(patch).eq("id",i.id); refresh();
+    },
+    triageReject: async i => {
+      if (!confirm("Rejeter ce signalement (fausse alerte) ? La machine repassera en marche.")) return;
+      await sb.from("interventions").update({triage:"rejected",status:"done",finished_at:new Date().toISOString()}).eq("id",i.id);
+      await sb.from("machines").update({status:"running",degraded_conditions:null,degraded_deadline:null}).eq("id",i.machine_id).in("status",["alarm","degraded"]);
+      refresh();
+    },
+    triageDuplicate: async (i,masterId) => {
+      await sb.from("interventions").update({duplicate_of:masterId,triage:"merged"}).eq("id",i.id); refresh();
+    },
+    saveWeeklyBrief: async (week,text) => {
+      await sb.from("organizations").update({settings:{...(org?.settings||{}),weekly_brief:{week,text}}}).eq("id",orgId);
+      const {data:o} = await sb.from("organizations").select("*").order("name");
+      setOrgs(o||[]);
     },
     setMachineStatus: async (id,st) => { await sb.from("machines").update({status:st,degraded_conditions:null,degraded_deadline:null}).eq("id",id); refresh(); },
     setDegraded: async (id,conditions,deadline) => { await sb.from("machines").update({status:"degraded",degraded_conditions:conditions,degraded_deadline:deadline}).eq("id",id); refresh(); },
@@ -494,7 +520,8 @@ function App({session}) {
   /* --- KPI --- */
   const kpi = useMemo(() => {
     const pannes = machines.filter(m=>m.status==="alarm").length;
-    const ouvertes = interventions.filter(i=>i.status!=="done").length;
+    const pending = interventions.filter(i=>i.triage==="pending").length;
+    const ouvertes = interventions.filter(i=>i.status!=="done" && i.triage!=="pending").length;
     const done = interventions.filter(i=>i.started_at && i.finished_at);
     const mttr = done.length ? Math.round(done.reduce((a,i)=>a+(new Date(i.finished_at)-new Date(i.started_at))/60000,0)/done.length) : null;
     const retard = preventifs.filter(p=>p.active && (p.next_due<=today() || planHoursDue(p,machines))).length;
@@ -503,7 +530,7 @@ function App({session}) {
     const counts = {};
     interventions.filter(i=>i.type==="curative" && i.reported_at>d90).forEach(i=>{counts[i.machine_id]=(counts[i.machine_id]||0)+1;});
     const chroniques = Object.entries(counts).filter(([,n])=>n>=3).map(([mid,n])=>({m:machines.find(x=>x.id===mid),n}));
-    return {pannes,ouvertes,mttr,retard,chroniques,lowStock};
+    return {pannes,ouvertes,mttr,retard,chroniques,lowStock,pending};
   }, [machines,interventions,preventifs,parts]);
 
   const machineName = id => machines.find(m=>m.id===id)?.name || "?";
@@ -514,6 +541,7 @@ function App({session}) {
   const NAV = [
     {sec:"Pilotage", items:[["dashboard","Tableau de bord","▦",kpi.pannes,"var(--alarm)"]]},
     {sec:"Maintenance", items:[
+      ["triage","À trier","📥",kpi.pending,"var(--accent)"],
       ["interventions","Interventions","🔧",kpi.ouvertes,"#3B4048"],
       ["preventif","Préventif","🗓",kpi.retard,"var(--alarm)"],
     ]},
@@ -537,7 +565,7 @@ function App({session}) {
             {sec.items.map(([k,label,ico,badge,badgeColor])=>(
               <button key={k} className={"nav"+(view.name===k?" active":"")} onClick={()=>setView({name:k})}>
                 <span className="ico">{ico}</span>{label}
-                {badge>0 && <span className="navbadge" style={{background:badgeColor}}>{badge}</span>}
+                {badge>0 && <span className="navbadge" style={{background:badgeColor,color:badgeColor==="var(--accent)"?"var(--ink)":"#fff"}}>{badge}</span>}
               </button>
             ))}
           </div>
@@ -567,11 +595,12 @@ function App({session}) {
           )}
         </header>
 
-        {view.name==="dashboard" && <Dashboard machines={machines} interventions={interventions} kpi={kpi} machineName={machineName} db={db} setView={setView}/>}
+        {view.name==="dashboard" && <Dashboard machines={machines} interventions={interventions} preventifs={preventifs} org={org} kpi={kpi} machineName={machineName} db={db} setView={setView}/>}
         {view.name==="parc" && <Parc machines={machines} interventions={interventions} preventifs={preventifs} setModal={setModal} setView={setView}/>}
         {view.name==="machine" && <MachineDetail machine={machines.find(m=>m.id===view.id)} docs={docs.filter(d=>d.machine_id===view.id)} interventions={interventions.filter(i=>i.machine_id===view.id)} parts={parts} plans={preventifs.filter(p=>p.machine_id===view.id)} db={db} back={()=>setView({name:"parc"})}/>}
+        {view.name==="triage" && <Triage interventions={interventions} machineName={machineName} db={db}/>}
         {view.name==="interventions" && (() => {
-          const openInts = interventions.filter(i=>i.status!=="done");
+          const openInts = interventions.filter(i=>i.status!=="done" && i.triage!=="pending");
           const doneInts = interventions.filter(i=>i.status==="done");
           return <>
             <Toolbar><H2>En cours ({openInts.length})</H2><button className="btn" onClick={()=>setModal("intervention")}>+ Déclarer</button></Toolbar>
@@ -609,9 +638,61 @@ function App({session}) {
 }
 
 /* ------------------------- VUES ------------------------- */
-function Dashboard({machines,interventions,kpi,machineName,db,setView}) {
+function WeeklyBrief({org,machines,interventions,preventifs,machineName,db}) {
+  const wk = isoWeek();
+  const cached = org?.settings?.weekly_brief;
+  const [busy,setBusy] = useState(false);
+  const [err,setErr] = useState(null);
+  const text = cached?.week===wk ? cached.text : null;
+  const gen = async () => {
+    setBusy(true); setErr(null);
+    try {
+      const d7 = new Date(Date.now()-7*864e5).toISOString();
+      const lastWeek = interventions.filter(i=>i.type==="curative" && i.reported_at>d7);
+      const byM = {}; lastWeek.forEach(i=>{byM[i.machine_id]=(byM[i.machine_id]||0)+1;});
+      const topM = Object.entries(byM).sort((a,b)=>b[1]-a[1])[0];
+      const byC = {}; lastWeek.forEach(i=>{
+        if (!i.failure_cause) return;
+        const lbl = FAILCAUSE[i.failure_cause]?.label || i.failure_cause;
+        byC[lbl] = (byC[lbl]||0)+1;
+      });
+      const stats = {
+        pannes_7_derniers_jours: lastWeek.length,
+        machine_la_plus_touchee: topM ? `${machineName(topM[0])} (${topM[1]} pannes)` : null,
+        causes: byC,
+        interventions_encore_ouvertes: interventions.filter(i=>i.status!=="done" && i.triage!=="pending").length,
+        preventifs_en_retard: preventifs.filter(p=>p.active && (p.next_due<=today() || planHoursDue(p,machines))).length,
+        preventifs_dus_sous_7_jours: preventifs.filter(p=>p.active && p.next_due>today() && p.next_due<=addDays(today(),7)).length,
+        machines_en_mode_degrade: machines.filter(m=>m.status==="degraded").map(m=>m.name),
+      };
+      const res = await fetch(SUPABASE_URL+"/functions/v1/weekly-brief", {
+        method:"POST",
+        headers:{"Content-Type":"application/json","Authorization":"Bearer "+SUPABASE_KEY,"apikey":SUPABASE_KEY},
+        body:JSON.stringify({stats, org:org?.name}),
+      });
+      const p = await res.json();
+      if (!res.ok || p.error) throw new Error(p.error||res.status);
+      await db.saveWeeklyBrief(wk, p.text);
+    } catch(e) { setErr("Brief indisponible — la fonction weekly-brief est-elle déployée ?"); }
+    setBusy(false);
+  };
+  return (
+    <div style={{background:"#fff",borderLeft:"4px solid var(--accent)",padding:"12px 16px",marginBottom:16,display:"flex",gap:12,alignItems:"center",flexWrap:"wrap"}}>
+      <div style={{flex:"1 1 300px"}}>
+        <div style={{font:"700 10px system-ui",textTransform:"uppercase",letterSpacing:".1em",color:"var(--muted)"}}>📬 Brief de la semaine · {wk}</div>
+        {text
+          ? <div style={{font:"500 13px system-ui",marginTop:4,whiteSpace:"pre-wrap"}}>{text}</div>
+          : <div style={{font:"500 12px system-ui",color:"var(--muted)",marginTop:4}}>{err || "Pas encore généré cette semaine."}</div>}
+      </div>
+      <button className="btn ghost sm" disabled={busy} onClick={gen}>{busy?"Génération…":text?"↻ Régénérer":"Générer"}</button>
+    </div>
+  );
+}
+
+function Dashboard({machines,interventions,preventifs,org,kpi,machineName,db,setView}) {
   const degOver = machines.filter(m=>m.status==="degraded" && m.degraded_deadline && m.degraded_deadline<today());
   return <>
+    <WeeklyBrief org={org} machines={machines} interventions={interventions} preventifs={preventifs} machineName={machineName} db={db}/>
     <div style={{display:"flex",gap:4,flexWrap:"wrap",background:"var(--panel)",padding:"14px 16px 10px",borderBottom:"3px solid var(--accent)",marginBottom:20}}>
       {machines.length===0 && <span style={{font:"500 13px system-ui",color:"var(--muted)"}}>Aucune machine — ajoutez votre parc dans « Parc machines ».</span>}
       {machines.map(m=>(
@@ -993,6 +1074,46 @@ function ChecklistModal({plan,onClose,onValidate}) {
   );
 }
 
+/* ------------------------- TRIAGE (inbox des signalements QR) ------------------------- */
+function Triage({interventions,machineName,db}) {
+  const pending = interventions.filter(i=>i.triage==="pending");
+  return <>
+    <H2>À trier ({pending.length})</H2>
+    <div style={{font:"500 13px system-ui",color:"var(--muted)",marginBottom:14}}>
+      Signalements arrivés par QR code. Qualifiez-les avant qu'ils entrent dans le flux — objectif : file vide chaque matin.
+    </div>
+    {pending.map(i=>{
+      const others = interventions.filter(x=>x.id!==i.id && x.machine_id===i.machine_id && x.status!=="done" && x.triage!=="pending");
+      return <TriageCard key={i.id} i={i} others={others} machineName={machineName} db={db}/>;
+    })}
+    {pending.length===0 && <Empty>File vide — tout est trié ✓</Empty>}
+  </>;
+}
+
+function TriageCard({i,others,machineName,db}) {
+  return (
+    <Row style={{borderLeft:"4px solid var(--accent)",flexWrap:"wrap",gap:10}}>
+      <div style={{flex:"1 1 260px"}}>
+        <b>{i.title}</b>
+        <div style={{font:"500 12px system-ui",color:"var(--muted)",marginTop:2}}>
+          {machineName(i.machine_id)} · {i.reported_at?.slice(0,16).replace("T"," ")} · priorité {i.priority}/3
+        </div>
+        {i.description && <div style={{font:"500 12px system-ui",marginTop:4}}>{i.description}</div>}
+      </div>
+      <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
+        <button className="btn sm" onClick={()=>db.triage(i,"accepted")}>✅ Accepter</button>
+        {others.length>0 && (
+          <Dropdown width={190} placeholder="🔗 Doublon de…" value={null}
+                    options={others.map(o=>({value:o.id,label:o.title.length>26?o.title.slice(0,26)+"…":o.title,sub:o.reported_at?.slice(0,10)}))}
+                    onChange={id=>db.triageDuplicate(i,id)}/>
+        )}
+        <button className="btn ghost sm" title="Pas urgent : accepté en priorité basse" onClick={()=>db.triage(i,"deferred")}>⏸ Reporter</button>
+        <button className="btn ghost sm" title="Fausse alerte" onClick={()=>db.triageReject(i)}>✕ Rejeter</button>
+      </div>
+    </Row>
+  );
+}
+
 /* ------------------------- PIÈCES DÉTACHÉES ------------------------- */
 function Pieces({parts,setModal,db}) {
   return <>
@@ -1077,9 +1198,14 @@ function Analyse({machines,interventions,org,db}) {
     .filter(x=>x.value>0).sort((a,b)=>b.value-a.value);
   const sansCause = curatives.filter(i=>!i.failure_cause).length;
 
+  const [retro,setRetro] = useState(false);
   return <>
-    <H2>Pareto des causes de panne</H2>
+    <Toolbar>
+      <H2>Pareto des causes de panne</H2>
+      <button className="btn" onClick={()=>setRetro(true)}>🎉 Rétro {new Date().getFullYear()}</button>
+    </Toolbar>
     <BarChart data={pareto} color="var(--warn)" empty="Renseignez la cause des pannes (menu « Cause ? » sur chaque intervention curative) pour voir apparaître le Pareto."/>
+    {retro && <Retro org={org} machines={machines} interventions={interventions} rate={+rate||0} onClose={()=>setRetro(false)}/>}
     {sansCause>0 && pareto.length>0 && (
       <div style={{font:"500 12px system-ui",color:"var(--muted)",marginTop:-4}}>
         {sansCause} panne{sansCause>1?"s":""} sans cause renseignée — non comptée{sansCause>1?"s":""} dans le graphique.
@@ -1116,6 +1242,60 @@ function Analyse({machines,interventions,org,db}) {
       </div>
     ) : <Empty>Pas encore de données.</Empty>}
   </>;
+}
+
+function Retro({org,machines,interventions,rate,onClose}) {
+  const year = new Date().getFullYear();
+  const its = interventions.filter(i=>i.reported_at?.slice(0,4)===String(year));
+  const cur = its.filter(i=>i.type==="curative");
+  const prev = its.filter(i=>i.type==="preventive");
+  const byM = machines.map(m=>({m, n:cur.filter(i=>i.machine_id===m.id).length})).sort((a,b)=>b.n-a.n);
+  const done = its.filter(i=>i.started_at&&i.finished_at);
+  const downtime = Math.round(done.reduce((a,i)=>a+(new Date(i.finished_at)-new Date(i.started_at))/60000,0));
+  const mttr = done.length ? Math.round(downtime/done.length) : 0;
+  const partsCost = its.reduce((a,i)=>a+(i.parts_used||[]).reduce((s,u)=>s+(+u.cost||0),0),0);
+  const cost = Math.round(partsCost + downtime/60*rate);
+  const causes = {}; cur.forEach(i=>{if(i.failure_cause) causes[i.failure_cause]=(causes[i.failure_cause]||0)+1;});
+  const topCause = Object.entries(causes).sort((a,b)=>b[1]-a[1])[0];
+  const slides = [
+    {big:"▮▮", t:`MAINTX RÉTRO ${year}`, s:org?.name || ""},
+    {big:its.length, t:"interventions cette année", s:`${cur.length} pannes · ${prev.length} préventifs`},
+    byM[0]?.n>0 ? {big:byM[0].m.name, t:"la plus capricieuse", s:`${byM[0].n} pannes — on la surveille de près`} : null,
+    topCause ? {big:FAILCAUSE[topCause[0]]?.label, t:"cause n°1 des pannes", s:`${topCause[1]} pannes — la piste d'amélioration ${year+1}`} : null,
+    downtime>0 ? {big:Math.round(downtime/60)+" h", t:"d'arrêt machine", s:`MTTR moyen : ${mttr} min`} : null,
+    cost>0 ? {big:cost.toLocaleString("fr-FR")+" €", t:"de maintenance", s:"pièces + main d'œuvre"} : null,
+    {big:"MERCI", t:"à toute l'équipe", s:`Rendez-vous en ${year+1} 🔧`},
+  ].filter(Boolean);
+  const [k,setK] = useState(0);
+  useEffect(() => {
+    const key = e => {
+      if (e.key==="Escape") onClose();
+      if (e.key==="ArrowRight") setK(x=>Math.min(slides.length-1,x+1));
+      if (e.key==="ArrowLeft") setK(x=>Math.max(0,x-1));
+    };
+    document.addEventListener("keydown", key);
+    return () => document.removeEventListener("keydown", key);
+  }, []);
+  const s = slides[k];
+  return (
+    <div style={{position:"fixed",inset:0,background:"var(--ink)",zIndex:100,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",cursor:"pointer",padding:24}}
+         onClick={()=>k<slides.length-1 ? setK(k+1) : onClose()}>
+      <div style={{position:"absolute",top:20,left:24,fontFamily:"var(--display)",fontSize:16,color:"#fff"}}>
+        <span style={{color:"var(--accent)"}}>▮▮</span> MAINT<span style={{color:"var(--accent)"}}>X</span>
+      </div>
+      <button className="btn ghost sm" style={{position:"absolute",top:20,right:24,color:"#C9CCD1",borderColor:"#444"}}
+              onClick={e=>{e.stopPropagation();onClose();}}>✕ Fermer</button>
+      <div style={{textAlign:"center",maxWidth:760}}>
+        <div style={{fontFamily:"var(--display)",fontSize:s.big && String(s.big).length>12 ? 42 : 88,lineHeight:1.05,color:"var(--accent)",textTransform:"uppercase",wordBreak:"break-word"}}>{s.big}</div>
+        <div style={{fontFamily:"var(--display)",fontSize:24,color:"#fff",textTransform:"uppercase",marginTop:18}}>{s.t}</div>
+        <div style={{font:"500 15px system-ui",color:"#C9CCD1",marginTop:10}}>{s.s}</div>
+      </div>
+      <div style={{position:"absolute",bottom:26,display:"flex",gap:6}}>
+        {slides.map((_,j)=><span key={j} style={{width:22,height:5,background:j===k?"var(--accent)":"#3B4048"}}/>)}
+      </div>
+      <div style={{position:"absolute",bottom:44,font:"500 11px system-ui",color:"#5E646E"}}>Cliquez pour avancer</div>
+    </div>
+  );
 }
 
 function BarChart({data,color,empty}) {

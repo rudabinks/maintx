@@ -49,16 +49,17 @@ plus. En cas de doute : moins de clics, moins de champs, plus gros boutons.
       préventifs en retard, cause récurrente ×3, panne en cours. Jauge + raisons en
       langage simple (onglet Activité) + score sur les cartes du Parc
 
-## 🔁 Lot B — rituels & fidélisation
+## ✅ Lot B — rituels & fidélisation (v0.9)
 
-- [ ] **Brief du lundi** : une seule notification hebdo narrative (cron + LLM léger),
-      les urgences andon restent instantanées
-- [ ] **Séries préventives** (streaks Duolingo) : "12 semaines sans préventif en
-      retard 🔥", badge d'équipe, jamais de flicage individuel
-- [ ] **MaintX Rétro** (Spotify Wrapped, décembre) : diaporama animé pour le patron,
-      partageable PDF — pub gratuite
-- [ ] **Inbox de triage des déclarations QR** (Linear) : Accepter+assigner / Fusionner
-      doublon / Reporter / Rejeter, objectif inbox zero
+- [x] **Brief du lundi** : bandeau dashboard généré par IA (Edge Function
+      weekly-brief, 45 mots max), 1×/semaine, caché dans settings.weekly_brief
+- [x] **MaintX Rétro** : diaporama plein écran depuis Analyse (interventions,
+      machine la plus capricieuse, cause n°1, heures d'arrêt, coût, merci équipe)
+- [x] **Inbox de triage des QR** (Linear) : vue "À trier" avec badge, Accepter /
+      Doublon (fusion, le suivi public suit le maître) / Reporter (priorité basse) /
+      Rejeter (fausse alerte, machine remise en marche) — patch-v09.sql
+- ~~Séries préventives (streaks)~~ : écarté par Lilian ("pas sérieux") — au backlog
+      si un client le demande
 
 ## 🤖 Lot C — IA atelier (Edge Functions Supabase, ~5-8 €/mois/client max)
 
