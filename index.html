@@ -16,9 +16,12 @@
     --display:'Arial Black','Helvetica Neue',system-ui,sans-serif;
   }
   *{box-sizing:border-box} body{margin:0;font-family:system-ui,sans-serif;background:var(--bg);color:var(--ink)}
-  .nav{display:block;width:100%;text-align:left;padding:11px 16px;border:0;background:transparent;color:#C9CCD1;font:600 13px system-ui;cursor:pointer;border-left:3px solid transparent}
-  .nav:hover{color:#fff}
-  .nav.active{color:var(--accent);border-left-color:var(--accent);background:rgba(255,196,0,.06)}
+  .nav{display:flex;align-items:center;gap:10px;width:100%;text-align:left;padding:10px 16px;border:0;background:transparent;color:#C9CCD1;font:600 13px system-ui;cursor:pointer;border-left:3px solid transparent;transition:background .15s,color .15s,border-color .15s,padding .15s}
+  .nav:hover{color:#fff;background:rgba(255,255,255,.06);padding-left:21px}
+  .nav.active{color:var(--accent);border-left-color:var(--accent);background:rgba(255,196,0,.08)}
+  .nav .ico{width:18px;text-align:center;flex:none}
+  .navsec{font:700 10px system-ui;letter-spacing:.14em;text-transform:uppercase;color:#5E646E;padding:18px 16px 6px}
+  .navbadge{margin-left:auto;color:#fff;font:700 10px system-ui;padding:2px 7px;min-width:14px;text-align:center}
   .btn{background:var(--ink);color:var(--accent);border:0;padding:10px 18px;font:700 13px system-ui;text-transform:uppercase;letter-spacing:.05em;cursor:pointer}
   .btn:hover{background:#000}.btn:disabled{opacity:.4;cursor:default}
   .btn.ghost{background:transparent;color:var(--ink);border:1.5px solid var(--ink)}
@@ -403,6 +406,10 @@ function App({session}) {
       await sb.from("interventions").update(patch).eq("id",i.id); refresh();
     },
     ackIntervention: async i => { await sb.from("interventions").update({acked_at:new Date().toISOString()}).eq("id",i.id); refresh(); },
+    deleteIntervention: async i => {
+      if (!confirm(`Supprimer l'intervention "${i.title}" ? (photos et commentaires inclus)`)) return;
+      await sb.from("interventions").delete().eq("id",i.id); refresh();
+    },
     setMachineStatus: async (id,st) => { await sb.from("machines").update({status:st,degraded_conditions:null,degraded_deadline:null}).eq("id",id); refresh(); },
     setDegraded: async (id,conditions,deadline) => { await sb.from("machines").update({status:"degraded",degraded_conditions:conditions,degraded_deadline:deadline}).eq("id",id); refresh(); },
     setInterventionCause: async (id,cause) => { await sb.from("interventions").update({failure_cause:cause}).eq("id",id); refresh(); },
@@ -504,16 +511,36 @@ function App({session}) {
   if (error) return <Center><div style={{textAlign:"center"}}><div style={{color:"var(--alarm)",font:"600 14px system-ui",marginBottom:16}}>{error}</div><button className="btn" onClick={()=>sb.auth.signOut()}>Se déconnecter</button></div></Center>;
   if (!profile || !orgId) return <Center>Chargement…</Center>;
 
-  const NAV = [["dashboard","Tableau de bord"],["parc","Parc machines"],["interventions","Interventions"],["preventif","Préventif"],["pieces","Pièces détachées"],["analyse","Analyse"],...(isSuper?[["admin","Admin clients"]]:[])];
+  const NAV = [
+    {sec:"Pilotage", items:[["dashboard","Tableau de bord","▦",kpi.pannes,"var(--alarm)"]]},
+    {sec:"Maintenance", items:[
+      ["interventions","Interventions","🔧",kpi.ouvertes,"#3B4048"],
+      ["preventif","Préventif","🗓",kpi.retard,"var(--alarm)"],
+    ]},
+    {sec:"Parc", items:[
+      ["parc","Machines","⚙️"],
+      ["pieces","Pièces détachées","🔩",kpi.lowStock,"var(--warn)"],
+    ]},
+    {sec:"Analyse", items:[["analyse","Analyse","📈"]]},
+    ...(isSuper?[{sec:"Superadmin", items:[["admin","Clients","👥"]]}]:[]),
+  ];
 
   return (
     <div style={{display:"flex",minHeight:"100vh"}}>
-      <aside style={{width:210,background:"var(--ink)",display:"flex",flexDirection:"column",padding:"20px 0",position:"sticky",top:0,height:"100vh"}}>
-        <div style={{fontFamily:"var(--display)",fontSize:20,color:"#fff",padding:"0 16px 24px"}}>
+      <aside style={{width:220,background:"var(--ink)",display:"flex",flexDirection:"column",padding:"20px 0",position:"sticky",top:0,height:"100vh",overflowY:"auto",flexShrink:0}}>
+        <div style={{fontFamily:"var(--display)",fontSize:20,color:"#fff",padding:"0 16px 10px"}}>
           <span style={{color:"var(--accent)",marginRight:6}}>▮▮</span>MAINT<span style={{color:"var(--accent)"}}>X</span>
         </div>
-        {NAV.map(([k,label])=>(
-          <button key={k} className={"nav"+(view.name===k?" active":"")} onClick={()=>setView({name:k})}>{label}</button>
+        {NAV.map(sec=>(
+          <div key={sec.sec}>
+            <div className="navsec">{sec.sec}</div>
+            {sec.items.map(([k,label,ico,badge,badgeColor])=>(
+              <button key={k} className={"nav"+(view.name===k?" active":"")} onClick={()=>setView({name:k})}>
+                <span className="ico">{ico}</span>{label}
+                {badge>0 && <span className="navbadge" style={{background:badgeColor}}>{badge}</span>}
+              </button>
+            ))}
+          </div>
         ))}
         <div style={{marginTop:"auto",padding:12,font:"500 11px system-ui",color:"var(--muted)"}}>
           {profile.full_name}<br/>{profile.role}
@@ -521,7 +548,8 @@ function App({session}) {
         </div>
       </aside>
 
-      <main style={{flex:1,padding:"28px 36px",maxWidth:1100}}>
+      <main style={{flex:1,padding:"28px 36px",minWidth:0}}>
+       <div style={{maxWidth:1100,margin:"0 auto"}}>
         <header style={{display:"flex",justifyContent:"space-between",alignItems:"flex-end",marginBottom:24}}>
           <div>
             <div style={{font:"700 10px system-ui",textTransform:"uppercase",letterSpacing:".12em",color:"var(--muted)",marginBottom:4}}>
@@ -542,11 +570,20 @@ function App({session}) {
         {view.name==="dashboard" && <Dashboard machines={machines} interventions={interventions} kpi={kpi} machineName={machineName} db={db} setView={setView}/>}
         {view.name==="parc" && <Parc machines={machines} interventions={interventions} preventifs={preventifs} setModal={setModal} setView={setView}/>}
         {view.name==="machine" && <MachineDetail machine={machines.find(m=>m.id===view.id)} docs={docs.filter(d=>d.machine_id===view.id)} interventions={interventions.filter(i=>i.machine_id===view.id)} parts={parts} plans={preventifs.filter(p=>p.machine_id===view.id)} db={db} back={()=>setView({name:"parc"})}/>}
-        {view.name==="interventions" && <>
-          <Toolbar><H2>Interventions</H2><button className="btn" onClick={()=>setModal("intervention")}>+ Déclarer</button></Toolbar>
-          {interventions.map(i=><IRow key={i.id} i={i} machineName={machineName} db={db} full parts={parts}/>)}
-          {interventions.length===0 && <Empty>Aucune intervention déclarée.</Empty>}
-        </>}
+        {view.name==="interventions" && (() => {
+          const openInts = interventions.filter(i=>i.status!=="done");
+          const doneInts = interventions.filter(i=>i.status==="done");
+          return <>
+            <Toolbar><H2>En cours ({openInts.length})</H2><button className="btn" onClick={()=>setModal("intervention")}>+ Déclarer</button></Toolbar>
+            {openInts.map(i=><IRow key={i.id} i={i} machineName={machineName} db={db} full parts={parts}/>)}
+            {openInts.length===0 && <Empty>Rien en cours — tout roule ✓</Empty>}
+            {doneInts.length>0 && (
+              <Foldable title={`Terminées (${doneInts.length})`}>
+                {doneInts.map(i=><IRow key={i.id} i={i} machineName={machineName} db={db} full parts={parts}/>)}
+              </Foldable>
+            )}
+          </>;
+        })()}
         {view.name==="preventif" && <Preventif preventifs={preventifs} machines={machines} machineName={machineName} db={db} setModal={setModal}/>}
         {view.name==="pieces" && <Pieces parts={parts} setModal={setModal} db={db}/>}
         {view.name==="analyse" && <Analyse machines={machines} interventions={interventions} org={org} db={db}/>}
@@ -559,6 +596,7 @@ function App({session}) {
             </Row>
           ))}
         </>}
+       </div>
       </main>
 
       {modal==="machine" && <MachineModal onClose={()=>setModal(null)} onSave={db.addMachine}/>}
@@ -1143,6 +1181,19 @@ function Dropdown({value,options,onChange,width,align="left",style,placeholder})
 }
 
 const H2 = ({children}) => <h2 style={{fontFamily:"var(--display)",fontSize:15,textTransform:"uppercase",letterSpacing:".05em",margin:"28px 0 12px"}}>{children}</h2>;
+
+function Foldable({title,children,defaultOpen=false}) {
+  const [open,setOpen] = useState(defaultOpen);
+  return (
+    <div style={{marginTop:24}}>
+      <button onClick={()=>setOpen(!open)}
+              style={{display:"flex",alignItems:"center",gap:8,background:"transparent",border:0,cursor:"pointer",font:"700 12px system-ui",textTransform:"uppercase",letterSpacing:".06em",color:"var(--muted)",padding:"6px 0"}}>
+        <span style={{display:"inline-block",transition:"transform .15s",transform:open?"rotate(90deg)":"none"}}>▶</span> {title}
+      </button>
+      {open && <div style={{marginTop:8}}>{children}</div>}
+    </div>
+  );
+}
 const Toolbar = ({children}) => <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>{children}</div>;
 const Empty = ({children}) => <div style={{font:"500 13px system-ui",color:"var(--muted)",padding:"20px 0"}}>{children}</div>;
 const Row = ({children,style}) => <div style={{background:"var(--panel)",padding:"12px 16px",display:"flex",alignItems:"center",gap:12,marginBottom:8,...style}}>{children}</div>;
@@ -1187,6 +1238,7 @@ function IRow({i,machineName,db,full,parts}) {
           <span style={{color:"#fff",font:"700 10px system-ui",textTransform:"uppercase",padding:"5px 10px",background:i.status==="done"?"var(--run)":"var(--ink)"}}>{ISTATUS[i.status].label}</span>
         )}
         {full && <button className="btn ghost sm" title="Photos et commentaires" onClick={()=>setOpen(!open)}>{open?"▲":"▼ Détails"}</button>}
+        {full && <button className="btn ghost sm" title="Supprimer l'intervention" onClick={()=>db.deleteIntervention(i)}>✕</button>}
       </Row>
       {open && full && <InterventionDetail i={i} db={db} parts={parts}/>}
     </div>

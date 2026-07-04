@@ -31,13 +31,18 @@ Transcription :
 ${transcript}
 """
 
+RÈGLE DE STYLE STRICTE : compte rendu d'atelier télégraphique. Les techniciens n'ont
+pas le temps de lire. Uniquement les faits : quoi constaté, quoi fait. Pas d'intro,
+pas de politesse, pas de reformulation du contexte, pas de "il est recommandé de".
+Exemple de bon resume : "Roulement moteur remplacé (encrassé). Machine relancée, RAS."
+
 Réponds UNIQUEMENT avec un objet JSON valide, sans texte autour, sans balises de code :
 {
-  "resume": "compte rendu propre et professionnel en 2 à 4 phrases, en français",
+  "resume": "1 à 2 phrases très courtes, 20 mots maximum au total",
   "cause": "mecanique" | "electrique" | "pneumatique" | "hydraulique" | "cn_automatisme" | "autre" | null,
   "repare": true si la machine est réparée et opérationnelle, false sinon,
-  "pieces": ["pièces ou références mentionnées"],
-  "actions_restantes": "ce qu'il reste à faire ou à commander, ou null"
+  "pieces": ["références/pièces mentionnées, telles quelles"],
+  "actions_restantes": "très court (10 mots max), ou null"
 }`;
 
     const r = await fetch("https://api.anthropic.com/v1/messages", {
@@ -49,7 +54,7 @@ Réponds UNIQUEMENT avec un objet JSON valide, sans texte autour, sans balises d
       },
       body: JSON.stringify({
         model: "claude-haiku-4-5-20251001",
-        max_tokens: 600,
+        max_tokens: 350,
         messages: [{ role: "user", content: prompt }],
       }),
     });
