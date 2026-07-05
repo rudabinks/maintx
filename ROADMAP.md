@@ -74,8 +74,11 @@ plus. En cas de doute : moins de clics, moins de champs, plus gros boutons.
 - [x] **Déjà-vu** (v0.11, sans IA) : encadré jaune dans le détail d'une panne en cours,
       3 pannes passées les plus proches de la même machine (mots du titre en commun),
       avec date, cause, pièces utilisées — la mémoire de l'atelier qui diagnostique
-- [ ] **Mécano (RAG)** : assistant français qui a lu les manuels uploadés, réponses
-      sourcées page à l'appui (pgvector) — la réponse à MaintainX CoPilot à prix PME
+- [x] **Mécano** (v0.12) : onglet sur la fiche machine — PDF indexés page par page
+      (doc-ingest, recherche plein-texte française, indexation auto à l'upload +
+      bouton 🧠), réponses UNIQUEMENT depuis les extraits avec source "(doc, p. X)"
+      (mecano-ask, Haiku), "je ne trouve pas dans la doc" sinon — patch-v11.sql +
+      2 Edge Functions. La réponse à MaintainX CoPilot à prix PME
 
 ## 📦 Backlog (issu de la veille, à prioriser plus tard)
 

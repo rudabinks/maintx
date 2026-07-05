@@ -61,6 +61,13 @@
 const SUPABASE_URL = "https://krfrzuxdymgzttkdcaab.supabase.co";
 const SUPABASE_KEY = "sb_publishable_KXSWUiTsFqU6aDf67rF51g_t_px3jkt";
 const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+// URL des Edge Functions (attention : le slug est figé au déploiement, le renommage ne le change pas)
+const FN = {
+  voice:  SUPABASE_URL+"/functions/v1/voice-report",
+  brief:  SUPABASE_URL+"/functions/v1/rapid-function",
+  ingest: SUPABASE_URL+"/functions/v1/doc-ingest",
+  ask:    SUPABASE_URL+"/functions/v1/mecano-ask",
+};
 
 const { useState, useEffect, useMemo, useRef } = React;
 
@@ -530,8 +537,37 @@ function App({session}) {
       const path = `${orgId}/${machineId}/${Date.now()}_${file.name.replace(/[^a-zA-Z0-9._-]/g,"_")}`;
       const {error:e1} = await sb.storage.from("docs").upload(path, file);
       if (e1) { alert("Erreur upload : "+e1.message); return; }
-      await sb.from("machine_documents").insert({org_id:orgId,machine_id:machineId,category,name:file.name,storage_path:path,uploaded_by:profile.id});
+      const {data:doc} = await sb.from("machine_documents").insert({org_id:orgId,machine_id:machineId,category,name:file.name,storage_path:path,uploaded_by:profile.id}).select().single();
       refresh();
+      // Les PDF sont indexés automatiquement pour Mécano
+      if (doc && file.name.toLowerCase().endsWith(".pdf")) db.ingestDoc(doc, true);
+    },
+    ingestDoc: async (d, silent) => {
+      try {
+        const {data:{session}} = await sb.auth.getSession();
+        const res = await fetch(FN.ingest, {
+          method:"POST",
+          headers:{"Content-Type":"application/json","Authorization":"Bearer "+session.access_token,"apikey":SUPABASE_KEY},
+          body:JSON.stringify({document_id:d.id}),
+        });
+        const p = await res.json();
+        if (!res.ok || p.error) throw new Error(p.error||res.status);
+        if (!silent && p.chunks===0) alert("Aucun texte lisible dans ce PDF (document scanné ?) — Mécano ne pourra pas s'en servir.");
+        refresh();
+      } catch(e) {
+        if (!silent) alert("Indexation impossible : "+(e.message||e)+" — la fonction doc-ingest est-elle déployée ?");
+      }
+    },
+    askMecano: async (machine, question) => {
+      const {data:{session}} = await sb.auth.getSession();
+      const res = await fetch(FN.ask, {
+        method:"POST",
+        headers:{"Content-Type":"application/json","Authorization":"Bearer "+session.access_token,"apikey":SUPABASE_KEY},
+        body:JSON.stringify({machine_id:machine.id, machine_name:machine.name, question}),
+      });
+      const p = await res.json();
+      if (!res.ok || p.error) throw new Error(p.error||res.status);
+      return p;
     },
     openDoc: async d => {
       const {data,error} = await sb.storage.from("docs").createSignedUrl(d.storage_path, 3600);
@@ -731,8 +767,7 @@ function WeeklyBrief({org,machines,interventions,preventifs,machineName,db}) {
     setBusy(true); setErr(null);
     try {
       const stats = buildStats();
-      // Fonction déployée sous le slug "rapid-function" (le renommage dashboard ne change pas l'URL)
-      const res = await fetch(SUPABASE_URL+"/functions/v1/rapid-function", {
+      const res = await fetch(FN.brief, {
         method:"POST",
         headers:{"Content-Type":"application/json","Authorization":"Bearer "+SUPABASE_KEY,"apikey":SUPABASE_KEY},
         body:JSON.stringify({stats, org:org?.name}),
@@ -851,12 +886,13 @@ function MachineDetail({machine,docs,interventions,parts,plans,db,back}) {
     {degModal && <DegradedModal machine={machine} onClose={()=>setDegModal(false)}
                                 onSave={(cond,dl)=>{db.setDegraded(machine.id,cond,dl);setDegModal(false);}}/>}
     <div style={{borderBottom:"1.5px solid #D5D8DC",marginBottom:16}}>
-      {[["infos","Infos & specs"],["activite","Activité"],["docs",`Documents (${docs.length})`],["histo",`Historique (${interventions.length})`],["qr","QR code"]].map(([k,l])=>(
+      {[["infos","Infos & specs"],["activite","Activité"],["docs",`Documents (${docs.length})`],["mecano","🔧 Mécano"],["histo",`Historique (${interventions.length})`],["qr","QR code"]].map(([k,l])=>(
         <button key={k} className={"tab"+(tab===k?" active":"")} onClick={()=>setTab(k)}>{l}</button>
       ))}
     </div>
     {tab==="infos" && <><MeterBox machine={machine} db={db}/><Specs machine={machine} db={db}/></>}
     {tab==="activite" && <ActivityTab machine={machine} interventions={interventions} docs={docs} plans={plans||[]} db={db}/>}
+    {tab==="mecano" && <Mecano machine={machine} docs={docs} db={db}/>}
     {tab==="docs" && <Docs machine={machine} docs={docs} db={db}/>}
     {tab==="histo" && <>
       {interventions.map(i=><IRow key={i.id} i={i} machineName={()=>""} db={db} full parts={parts}/>)}
@@ -984,6 +1020,9 @@ function Docs({machine,docs,db}) {
                 <b style={{font:"600 13px system-ui"}}>📄 {d.name}</b>
                 <div style={{font:"500 11px system-ui",color:"var(--muted)"}}>{d.created_at?.slice(0,10)}</div>
               </div>
+              {d.name?.toLowerCase().endsWith(".pdf") && (d.indexed_at
+                ? <span title="Lisible par Mécano" style={{font:"600 11px system-ui",color:"var(--run)"}}>🧠 ✓</span>
+                : <button className="btn ghost sm" title="Rendre lisible par l'assistant Mécano" onClick={()=>db.ingestDoc(d)}>🧠 Indexer</button>)}
               <button className="btn ghost sm" onClick={()=>db.openDoc(d)}>Ouvrir</button>
               <button className="btn ghost sm" onClick={()=>db.deleteDoc(d)}>✕</button>
             </Row>
@@ -992,6 +1031,55 @@ function Docs({machine,docs,db}) {
       );
     })}
     {docs.length===0 && <Empty>Aucun document. Ajoutez schémas électriques, pneumatiques, hydrauliques, notices de maintenance…</Empty>}
+  </>;
+}
+
+function Mecano({machine,docs,db}) {
+  const [q,setQ] = useState("");
+  const [hist,setHist] = useState([]);
+  const [busy,setBusy] = useState(false);
+  const nbIndexed = docs.filter(d=>d.indexed_at).length;
+  const ask = async () => {
+    const question = q.trim();
+    if (!question || busy) return;
+    setBusy(true); setQ("");
+    try {
+      const r = await db.askMecano(machine, question);
+      setHist(h=>[{q:question, a:r.answer, sources:r.sources||[]}, ...h]);
+    } catch(e) {
+      setHist(h=>[{q:question, a:"Erreur : "+(e.message||e)+" — la fonction mecano-ask est-elle déployée ?", sources:[]}, ...h]);
+    }
+    setBusy(false);
+  };
+  return <>
+    <div className="card" style={{maxWidth:640,marginBottom:14}}>
+      <div style={{font:"700 12px system-ui",textTransform:"uppercase",letterSpacing:".05em",marginBottom:6}}>🔧 Mécano — l'assistant qui a lu les manuels</div>
+      <div style={{font:"500 12px system-ui",color:"var(--muted)",marginBottom:12}}>
+        Répond uniquement à partir des documents indexés de cette machine ({nbIndexed} document{nbIndexed>1?"s":""} lisible{nbIndexed>1?"s":""} 🧠),
+        avec la page en source. S'il ne trouve pas, il le dit — il n'invente jamais.
+      </div>
+      <div style={{display:"flex",gap:8}}>
+        <input placeholder="Ex : couple de serrage de la broche ? pression pneumatique ?" value={q}
+               onChange={e=>setQ(e.target.value)} onKeyDown={e=>e.key==="Enter"&&ask()}/>
+        <button className="btn" disabled={busy||!q.trim()} onClick={ask}>{busy?"…":"Demander"}</button>
+      </div>
+      {nbIndexed===0 && <div style={{font:"600 12px system-ui",color:"var(--warn)",marginTop:8}}>
+        Aucun document indexé — uploadez un PDF dans l'onglet Documents (indexation automatique) ou cliquez 🧠 Indexer sur les PDF existants.
+      </div>}
+    </div>
+    {hist.map((h,k)=>(
+      <div key={k} className="card" style={{maxWidth:640,marginBottom:10}}>
+        <div style={{font:"700 13px system-ui",marginBottom:6}}>❓ {h.q}</div>
+        <div style={{font:"500 13px system-ui",whiteSpace:"pre-wrap"}}>{h.a}</div>
+        {h.sources.length>0 && (
+          <div style={{display:"flex",gap:6,flexWrap:"wrap",marginTop:8}}>
+            {h.sources.map((s,j)=>(
+              <span key={j} style={{font:"600 11px system-ui",background:"var(--bg)",padding:"3px 8px"}}>📄 {s.doc} · p. {s.page}</span>
+            ))}
+          </div>
+        )}
+      </div>
+    ))}
   </>;
 }
 
@@ -1527,7 +1615,7 @@ function VoiceReport({i,onApplied,db}) {
   const analyze = async () => {
     setState("busy"); setErr(null);
     try {
-      const res = await fetch(SUPABASE_URL+"/functions/v1/voice-report", {
+      const res = await fetch(FN.voice, {
         method:"POST",
         headers:{"Content-Type":"application/json","Authorization":"Bearer "+SUPABASE_KEY,"apikey":SUPABASE_KEY},
         body:JSON.stringify({transcript:text, title:i.title}),
