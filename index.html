@@ -677,7 +677,8 @@ function WeeklyBrief({org,machines,interventions,preventifs,machineName,db}) {
         preventifs_dus_sous_7_jours: preventifs.filter(p=>p.active && p.next_due>today() && p.next_due<=addDays(today(),7)).length,
         machines_en_mode_degrade: machines.filter(m=>m.status==="degraded").map(m=>m.name),
       };
-      const res = await fetch(SUPABASE_URL+"/functions/v1/weekly-brief", {
+      // Fonction déployée sous le slug "rapid-function" (le renommage dashboard ne change pas l'URL)
+      const res = await fetch(SUPABASE_URL+"/functions/v1/rapid-function", {
         method:"POST",
         headers:{"Content-Type":"application/json","Authorization":"Bearer "+SUPABASE_KEY,"apikey":SUPABASE_KEY},
         body:JSON.stringify({stats, org:org?.name}),
