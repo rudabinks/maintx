@@ -443,6 +443,11 @@ function App({session}) {
     triageDuplicate: async (i,masterId) => {
       await sb.from("interventions").update({duplicate_of:masterId,triage:"merged"}).eq("id",i.id); refresh();
     },
+    setOrgLogo: async (id,url) => {
+      await sb.from("organizations").update({logo_url:url||null}).eq("id",id);
+      const {data:o} = await sb.from("organizations").select("*").order("name");
+      setOrgs(o||[]);
+    },
     saveWeeklyBrief: async (week,text) => {
       await sb.from("organizations").update({settings:{...(org?.settings||{}),weekly_brief:{week,text}}}).eq("id",orgId);
       const {data:o} = await sb.from("organizations").select("*").order("name");
@@ -632,7 +637,9 @@ function App({session}) {
           <Toolbar><H2>Clients ({orgs.length})</H2><button className="btn" onClick={()=>setModal("org")}>+ Nouveau client</button></Toolbar>
           {orgs.map(o=>(
             <Row key={o.id}>
-              <div style={{flex:1}}><b>{o.name}</b><div style={{font:"500 12px system-ui",color:"var(--muted)"}}>plan {o.plan} · {o.slug}</div></div>
+              <div style={{flex:1}}><b>{o.name}</b><div style={{font:"500 12px system-ui",color:"var(--muted)"}}>plan {o.plan} · {o.slug}{o.logo_url?" · logo ✓":""}</div></div>
+              <button className="btn ghost sm" title="URL du logo (affiché sur les rapports PDF)"
+                      onClick={()=>{const url=prompt("URL du logo de l'entreprise (image en ligne, ex: https://…/logo.png) :", o.logo_url||""); if(url!==null) db.setOrgLogo(o.id,url.trim());}}>Logo</button>
               <button className="btn ghost sm" onClick={()=>{setOrgId(o.id);setView({name:"dashboard"});}}>Ouvrir →</button>
             </Row>
           ))}
@@ -656,27 +663,62 @@ function WeeklyBrief({org,machines,interventions,preventifs,machineName,db}) {
   const [busy,setBusy] = useState(false);
   const [err,setErr] = useState(null);
   const text = cached?.week===wk ? cached.text : null;
+  const buildStats = () => {
+    const d7 = new Date(Date.now()-7*864e5).toISOString();
+    const lastWeek = interventions.filter(i=>i.type==="curative" && i.reported_at>d7);
+    const byM = {}; lastWeek.forEach(i=>{byM[i.machine_id]=(byM[i.machine_id]||0)+1;});
+    const topM = Object.entries(byM).sort((a,b)=>b[1]-a[1])[0];
+    const byC = {}; lastWeek.forEach(i=>{
+      if (!i.failure_cause) return;
+      const lbl = FAILCAUSE[i.failure_cause]?.label || i.failure_cause;
+      byC[lbl] = (byC[lbl]||0)+1;
+    });
+    return {
+      pannes_7_derniers_jours: lastWeek.length,
+      machine_la_plus_touchee: topM ? `${machineName(topM[0])} (${topM[1]} pannes)` : null,
+      causes: byC,
+      interventions_encore_ouvertes: interventions.filter(i=>i.status!=="done" && i.triage!=="pending").length,
+      preventifs_en_retard: preventifs.filter(p=>p.active && (p.next_due<=today() || planHoursDue(p,machines))).length,
+      preventifs_dus_sous_7_jours: preventifs.filter(p=>p.active && p.next_due>today() && p.next_due<=addDays(today(),7)).length,
+      machines_en_mode_degrade: machines.filter(m=>m.status==="degraded").map(m=>m.name),
+    };
+  };
+  const esc = s => String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+  const printReport = () => {
+    const s = buildStats();
+    const rows = [
+      ["Pannes (7 derniers jours)", s.pannes_7_derniers_jours],
+      ["Machine la plus touchée", s.machine_la_plus_touchee || "—"],
+      ["Causes identifiées", Object.entries(s.causes).map(([k,n])=>`${k} ×${n}`).join(", ") || "—"],
+      ["Interventions ouvertes", s.interventions_encore_ouvertes],
+      ["Préventifs en retard", s.preventifs_en_retard],
+      ["Préventifs à venir (7 j)", s.preventifs_dus_sous_7_jours],
+      ["Machines en mode dégradé", s.machines_en_mode_degrade.join(", ") || "aucune"],
+    ];
+    const w = window.open("","_blank","width=820,height=980");
+    w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Rapport hebdo ${wk} — ${esc(org?.name||"")}</title></head>
+<body style="font-family:system-ui,sans-serif;color:#1B1D21;margin:0;padding:40px 46px">
+  <div style="display:flex;justify-content:space-between;align-items:center;border-bottom:5px solid #FFC400;padding-bottom:16px">
+    <div>
+      <div style="font-family:'Arial Black',sans-serif;font-size:24px;text-transform:uppercase">${esc(org?.name||"")}</div>
+      <div style="font-size:11px;color:#8A8F98;font-weight:700;text-transform:uppercase;letter-spacing:.12em;margin-top:4px">Rapport hebdomadaire maintenance · Semaine ${wk}</div>
+    </div>
+    ${org?.logo_url ? `<img src="${esc(org.logo_url)}" style="height:56px;max-width:180px;object-fit:contain"/>` : `<div style="font-family:'Arial Black',sans-serif;font-size:16px"><span style="color:#FFC400">▮▮</span> MAINT<span style="color:#FFC400">X</span></div>`}
+  </div>
+  <h2 style="font-family:'Arial Black',sans-serif;font-size:14px;text-transform:uppercase;letter-spacing:.05em;margin:28px 0 10px">Synthèse</h2>
+  <p style="font-size:14px;line-height:1.6;margin:0;white-space:pre-wrap">${esc(text||"")}</p>
+  <h2 style="font-family:'Arial Black',sans-serif;font-size:14px;text-transform:uppercase;letter-spacing:.05em;margin:30px 0 10px">Chiffres de la semaine</h2>
+  <table style="width:100%;border-collapse:collapse;font-size:13px">
+    ${rows.map(([k,v])=>`<tr><td style="padding:9px 4px;border-bottom:1px solid #E3E5E8;font-weight:700;width:46%">${esc(k)}</td><td style="padding:9px 4px;border-bottom:1px solid #E3E5E8">${esc(v)}</td></tr>`).join("")}
+  </table>
+  <div style="margin-top:44px;font-size:10px;color:#8A8F98">Généré par MaintX le ${new Date().toLocaleDateString("fr-FR")} · document interne maintenance</div>
+</body></html>`);
+    w.document.close(); w.focus(); setTimeout(()=>w.print(), 400);
+  };
   const gen = async () => {
     setBusy(true); setErr(null);
     try {
-      const d7 = new Date(Date.now()-7*864e5).toISOString();
-      const lastWeek = interventions.filter(i=>i.type==="curative" && i.reported_at>d7);
-      const byM = {}; lastWeek.forEach(i=>{byM[i.machine_id]=(byM[i.machine_id]||0)+1;});
-      const topM = Object.entries(byM).sort((a,b)=>b[1]-a[1])[0];
-      const byC = {}; lastWeek.forEach(i=>{
-        if (!i.failure_cause) return;
-        const lbl = FAILCAUSE[i.failure_cause]?.label || i.failure_cause;
-        byC[lbl] = (byC[lbl]||0)+1;
-      });
-      const stats = {
-        pannes_7_derniers_jours: lastWeek.length,
-        machine_la_plus_touchee: topM ? `${machineName(topM[0])} (${topM[1]} pannes)` : null,
-        causes: byC,
-        interventions_encore_ouvertes: interventions.filter(i=>i.status!=="done" && i.triage!=="pending").length,
-        preventifs_en_retard: preventifs.filter(p=>p.active && (p.next_due<=today() || planHoursDue(p,machines))).length,
-        preventifs_dus_sous_7_jours: preventifs.filter(p=>p.active && p.next_due>today() && p.next_due<=addDays(today(),7)).length,
-        machines_en_mode_degrade: machines.filter(m=>m.status==="degraded").map(m=>m.name),
-      };
+      const stats = buildStats();
       // Fonction déployée sous le slug "rapid-function" (le renommage dashboard ne change pas l'URL)
       const res = await fetch(SUPABASE_URL+"/functions/v1/rapid-function", {
         method:"POST",
@@ -697,6 +739,7 @@ function WeeklyBrief({org,machines,interventions,preventifs,machineName,db}) {
           ? <div style={{font:"500 13px system-ui",marginTop:4,whiteSpace:"pre-wrap"}}>{text}</div>
           : <div style={{font:"500 12px system-ui",color:"var(--muted)",marginTop:4}}>{err || "Pas encore généré cette semaine."}</div>}
       </div>
+      {text && <button className="btn sm" onClick={printReport}>🖨 PDF</button>}
       <button className="btn ghost sm" disabled={busy} onClick={gen}>{busy?"Génération…":text?"↻ Régénérer":"Générer"}</button>
     </div>
   );
