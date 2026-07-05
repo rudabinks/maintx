@@ -90,6 +90,7 @@ plus. En cas de doute : moins de clics, moins de champs, plus gros boutons.
 - [ ] Palette de commandes Ctrl+K + recherche universelle mobile
 - [ ] Bibliothèque de gammes par famille de machine (pré-remplie par Lilian à chaque
       setup → setups de plus en plus rapides)
+- [ ] Améliorations du rapport hebdo PDF (mise en page, graphiques, envoi par mail)
 - [ ] Annotation des photos (flèches, cercles, texte — canvas simple) : feature la
       plus citée en positif par les techniciens
 - [ ] Export CSV/Excel sur toutes les listes (machines, interventions, pièces)
