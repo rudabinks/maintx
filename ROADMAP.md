@@ -68,8 +68,13 @@ plus. En cas de doute : moins de clics, moins de champs, plus gros boutons.
       voice-report (Claude Haiku) → compte rendu structuré proposé (résumé, cause,
       réparé ou non, pièces, reste à faire) que le technicien valide en 1 tap.
       ⚠ Déploiement requis : fonction voice-report + secret ANTHROPIC_API_KEY
-- [ ] **Docteur Panne** : photo au moment du scan QR → vision IA propose cause,
-      gravité, pré-remplit la déclaration (lit les codes erreur des écrans CN)
+- ~~Docteur Panne (diagnostic IA par photo)~~ : abandonné — l'IA n'a pas le contexte
+      machine, un diagnostic faux avec assurance tue la confiance (décision Lilian).
+      Reste envisageable en factuel pur : lecture de code erreur / plaque signalétique
+- [ ] **Déjà-vu** (remplaçant, sans IA) : à l'arrivée d'une panne, afficher les
+      interventions passées similaires de la machine (cause, pièces, commentaires) —
+      c'est l'historique qui aide au diagnostic, fiabilité 100 %, fidélisation
+      (quitter MaintX = perdre la mémoire de l'atelier)
 - [ ] **Mécano (RAG)** : assistant français qui a lu les manuels uploadés, réponses
       sourcées page à l'appui (pgvector) — la réponse à MaintainX CoPilot à prix PME
 
