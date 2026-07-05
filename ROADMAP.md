@@ -71,10 +71,9 @@ plus. En cas de doute : moins de clics, moins de champs, plus gros boutons.
 - ~~Docteur Panne (diagnostic IA par photo)~~ : abandonné — l'IA n'a pas le contexte
       machine, un diagnostic faux avec assurance tue la confiance (décision Lilian).
       Reste envisageable en factuel pur : lecture de code erreur / plaque signalétique
-- [ ] **Déjà-vu** (remplaçant, sans IA) : à l'arrivée d'une panne, afficher les
-      interventions passées similaires de la machine (cause, pièces, commentaires) —
-      c'est l'historique qui aide au diagnostic, fiabilité 100 %, fidélisation
-      (quitter MaintX = perdre la mémoire de l'atelier)
+- [x] **Déjà-vu** (v0.11, sans IA) : encadré jaune dans le détail d'une panne en cours,
+      3 pannes passées les plus proches de la même machine (mots du titre en commun),
+      avec date, cause, pièces utilisées — la mémoire de l'atelier qui diagnostique
 - [ ] **Mécano (RAG)** : assistant français qui a lu les manuels uploadés, réponses
       sourcées page à l'appui (pgvector) — la réponse à MaintainX CoPilot à prix PME
 

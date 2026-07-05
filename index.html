@@ -474,6 +474,18 @@ function App({session}) {
       const {data:o} = await sb.from("organizations").select("*").order("name");
       setOrgs(o||[]);
     },
+    fetchDejaVu: async i => {
+      const {data} = await sb.from("interventions").select("*")
+        .eq("machine_id",i.machine_id).eq("type","curative").eq("status","done")
+        .neq("id",i.id).is("duplicate_of",null)
+        .order("reported_at",{ascending:false}).limit(10);
+      const past = data||[];
+      // Priorité aux titres qui partagent des mots avec la panne actuelle
+      const words = (i.title||"").toLowerCase().split(/[^a-zà-ÿ0-9]+/).filter(w=>w.length>3);
+      const score = p => words.filter(w=>(p.title||"").toLowerCase().includes(w)).length;
+      return past.map(p=>({p,s:score(p)})).sort((a,b)=>b.s-a.s || new Date(b.p.reported_at)-new Date(a.p.reported_at))
+                 .slice(0,3).map(x=>x.p);
+    },
     fetchMachineComments: async ids => {
       if (!ids.length) return [];
       const {data} = await sb.from("intervention_comments").select("*, author:profiles(full_name)").in("intervention_id",ids).order("created_at",{ascending:false});
@@ -1584,8 +1596,12 @@ function InterventionDetail({i,db,parts}) {
   const [busy,setBusy] = useState(false);
   const [partId,setPartId] = useState(null);
   const [partQty,setPartQty] = useState(1);
+  const [deja,setDeja] = useState([]);
   const load = () => db.fetchComments(i.id).then(setComments);
-  useEffect(() => { load(); }, [i.id]);
+  useEffect(() => {
+    load();
+    if (i.type==="curative" && i.status!=="done") db.fetchDejaVu(i).then(setDeja);
+  }, [i.id]);
   const send = async () => {
     if (!txt.trim()) return;
     setBusy(true); await db.addComment(i.id, txt.trim()); setTxt(""); await load(); setBusy(false);
@@ -1594,6 +1610,18 @@ function InterventionDetail({i,db,parts}) {
   return (
     <div style={{background:"#F6F7F8",borderLeft:"4px solid #D5D8DC",padding:"12px 16px"}}>
       {i.description && <div style={{font:"500 13px system-ui",whiteSpace:"pre-wrap",marginBottom:10}}>{i.description}</div>}
+      {deja.length>0 && i.status!=="done" && (
+        <div style={{background:"#FFF7DB",borderLeft:"4px solid var(--accent)",padding:"10px 12px",marginBottom:12}}>
+          <div style={{font:"700 11px system-ui",textTransform:"uppercase",letterSpacing:".06em",marginBottom:6}}>🔁 Déjà arrivé sur cette machine</div>
+          {deja.map(d=>(
+            <div key={d.id} style={{font:"500 12px system-ui",padding:"3px 0"}}>
+              {d.reported_at?.slice(0,10)} — <b>{d.title}</b>
+              {d.failure_cause && <span style={{color:FAILCAUSE[d.failure_cause]?.color,fontWeight:700}}> · {FAILCAUSE[d.failure_cause]?.label}</span>}
+              {(d.parts_used||[]).length>0 && <span style={{color:"var(--muted)"}}> · pièces : {d.parts_used.map(u=>u.name).join(", ")}</span>}
+            </div>
+          ))}
+        </div>
+      )}
       <VoiceReport i={i} db={db} onApplied={load}/>
       <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center",marginBottom:12}}>
         {photos.map((ph,k)=>(
