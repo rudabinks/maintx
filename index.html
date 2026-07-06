@@ -839,7 +839,7 @@ function App({session}) {
         </header>
 
         {view.name==="dashboard" && <Dashboard machines={machines} interventions={interventions} preventifs={preventifs} org={org} kpi={kpi} machineName={machineName} db={db} setView={setView}/>}
-        {view.name==="parc" && <Parc machines={machines} interventions={interventions} preventifs={preventifs} setModal={setModal} setView={setView}/>}
+        {view.name==="parc" && <Parc machines={machines} interventions={interventions} preventifs={preventifs} setModal={setModal} setView={setView} isSuper={isSuper}/>}
         {view.name==="machine" && <MachineDetail machine={machines.find(m=>m.id===view.id)} docs={docs.filter(d=>d.machine_id===view.id)} interventions={interventions.filter(i=>i.machine_id===view.id)} parts={parts} plans={preventifs.filter(p=>p.machine_id===view.id)} db={db} back={()=>setView({name:"parc"})}/>}
         {view.name==="triage" && <Triage interventions={interventions} machineName={machineName} db={db}/>}
         {view.name==="interventions" && (() => {
@@ -1008,12 +1008,12 @@ function Dashboard({machines,interventions,preventifs,org,kpi,machineName,db,set
   </>;
 }
 
-function Parc({machines,interventions,preventifs,setModal,setView}) {
+function Parc({machines,interventions,preventifs,setModal,setView,isSuper}) {
   return <>
     <Toolbar>
       <H2>Parc machines ({machines.length})</H2>
       <div style={{display:"flex",gap:8}}>
-        <button className="btn ghost" onClick={()=>setModal("import")}>⤒ Importer CSV</button>
+        {isSuper && <button className="btn ghost" onClick={()=>setModal("import")}>⤒ Importer CSV</button>}
         <button className="btn" onClick={()=>setModal("machine")}>+ Ajouter</button>
       </div>
     </Toolbar>
