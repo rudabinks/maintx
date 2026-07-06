@@ -90,6 +90,11 @@ const STATUS = {
   alarm:{label:"En panne",color:"var(--alarm)"},
 };
 const ITYPE = {curative:"Curatif",preventive:"Préventif",improvement:"Amélioratif"};
+const ROLES = {
+  operator:{label:"Opérateur",desc:"Déclare les pannes"},
+  technician:{label:"Technicien",desc:"Intervient et clôture"},
+  manager:{label:"Manager",desc:"KPI, config, analyse"},
+};
 const FAILCAUSE = {
   mecanique:{label:"Mécanique",color:"#B3541E"},
   electrique:{label:"Électrique",color:"#E8940A"},
@@ -506,28 +511,69 @@ function TrackPage({token}) {
 
 /* ------------------------- LOGIN ------------------------- */
 function Login() {
+  const [mode,setMode] = useState("login"); // login | signup
   const [email,setEmail] = useState("");
   const [pwd,setPwd] = useState("");
+  const [name,setName] = useState("");
+  const [company,setCompany] = useState("");
   const [err,setErr] = useState(null);
   const [busy,setBusy] = useState(false);
+  const [signedUp,setSignedUp] = useState(false);
   const go = async () => {
     setBusy(true); setErr(null);
     const {error} = await sb.auth.signInWithPassword({email, password:pwd});
     if (error) setErr("Identifiants incorrects ou compte inexistant.");
     setBusy(false);
   };
+  const register = async () => {
+    setBusy(true); setErr(null);
+    const {error} = await sb.auth.signUp({email, password:pwd,
+      options:{data:{full_name:name, requested_org:company}}});
+    if (error) setErr(error.message.includes("registered") ? "Un compte existe déjà avec cet email." : error.message);
+    else setSignedUp(true);
+    setBusy(false);
+  };
+  if (signedUp) return (
+    <Center>
+      <div style={{background:"#fff",padding:32,width:400,maxWidth:"94vw",borderTop:"5px solid var(--accent)",textAlign:"center"}}>
+        <div style={{fontSize:40}}>✓</div>
+        <div style={{font:"800 17px system-ui",marginTop:4}}>Demande envoyée</div>
+        <div style={{font:"500 13px system-ui",color:"var(--muted)",margin:"10px 0 18px"}}>
+          Votre compte est en attente de validation par MaintX. Vous pourrez vous connecter une fois qu'il aura été autorisé.
+        </div>
+        <button className="btn" style={{width:"100%"}} onClick={()=>{setMode("login");setSignedUp(false);}}>Retour à la connexion</button>
+      </div>
+    </Center>
+  );
   return (
     <Center>
-      <div style={{background:"#fff",padding:32,width:380,borderTop:"5px solid var(--accent)"}}>
+      <div style={{background:"#fff",padding:32,width:380,maxWidth:"94vw",borderTop:"5px solid var(--accent)"}}>
         <div style={{fontFamily:"var(--display)",fontSize:24,marginBottom:4}}>
           <span style={{color:"var(--accent)"}}>▮▮</span> MAINT<span style={{color:"var(--accent)"}}>X</span>
         </div>
-        <div style={{font:"600 11px system-ui",textTransform:"uppercase",letterSpacing:".1em",color:"var(--muted)",marginBottom:24}}>GMAO · Connexion</div>
+        <div style={{font:"600 11px system-ui",textTransform:"uppercase",letterSpacing:".1em",color:"var(--muted)",marginBottom:24}}>
+          GMAO · {mode==="login"?"Connexion":"Créer un compte"}
+        </div>
+        {mode==="signup" && <>
+          <input placeholder="Nom et prénom" value={name} onChange={e=>setName(e.target.value)} style={{marginBottom:10}}/>
+          <input placeholder="Nom de votre entreprise" value={company} onChange={e=>setCompany(e.target.value)} style={{marginBottom:10}}/>
+        </>}
         <input placeholder="Email" value={email} onChange={e=>setEmail(e.target.value)} style={{marginBottom:10}}/>
-        <input placeholder="Mot de passe" type="password" value={pwd} onChange={e=>setPwd(e.target.value)} onKeyDown={e=>e.key==="Enter"&&go()} style={{marginBottom:14}}/>
+        <input placeholder="Mot de passe" type="password" value={pwd} onChange={e=>setPwd(e.target.value)}
+               onKeyDown={e=>e.key==="Enter"&&(mode==="login"?go():register())} style={{marginBottom:14}}/>
         {err && <div style={{color:"var(--alarm)",font:"600 12px system-ui",marginBottom:12}}>{err}</div>}
-        <button className="btn" style={{width:"100%"}} disabled={busy||!email||!pwd} onClick={go}>{busy?"Connexion…":"Se connecter"}</button>
-        <div style={{font:"500 11px system-ui",color:"var(--muted)",marginTop:16}}>Les comptes sont créés par votre administrateur MaintX.</div>
+        {mode==="login" ? (
+          <button className="btn" style={{width:"100%"}} disabled={busy||!email||!pwd} onClick={go}>{busy?"Connexion…":"Se connecter"}</button>
+        ) : (
+          <button className="btn" style={{width:"100%"}} disabled={busy||!email||!pwd||!name} onClick={register}>{busy?"Envoi…":"Créer mon compte"}</button>
+        )}
+        <div style={{font:"500 12px system-ui",color:"var(--muted)",marginTop:16,textAlign:"center"}}>
+          {mode==="login" ? (
+            <>Pas encore de compte ? <a style={{color:"var(--ink)",fontWeight:700,cursor:"pointer"}} onClick={()=>{setMode("signup");setErr(null);}}>Créer un compte</a></>
+          ) : (
+            <>Déjà un compte ? <a style={{color:"var(--ink)",fontWeight:700,cursor:"pointer"}} onClick={()=>{setMode("login");setErr(null);}}>Se connecter</a></>
+          )}
+        </div>
       </div>
     </Center>
   );
@@ -547,17 +593,24 @@ function App({session}) {
   const [modal,setModal] = useState(null);
   const [error,setError] = useState(null);
   const [navOpen,setNavOpen] = useState(false);
+  const [pendingProfiles,setPendingProfiles] = useState([]);
 
   const isSuper = profile?.role === "superadmin";
   const org = orgs.find(o=>o.id===orgId);
 
+  const loadPending = async () => {
+    const {data} = await sb.from("profiles").select("*").eq("pending",true).order("created_at");
+    setPendingProfiles(data||[]);
+  };
   useEffect(() => { (async () => {
     const {data:p,error:e1} = await sb.from("profiles").select("*").eq("id",session.user.id).single();
-    if (e1 || !p) { setError("Profil introuvable. L'administrateur doit créer votre profil."); return; }
+    if (e1 || !p) { setError("Profil introuvable. Votre inscription a peut-être été refusée — contactez MaintX."); return; }
     setProfile(p);
+    if (p.pending) return; // compte en attente : on ne charge pas l'app
     const {data:o} = await sb.from("organizations").select("*").order("name");
     setOrgs(o||[]);
     setOrgId(p.org_id || (o&&o[0]?.id) || null);
+    if (p.role === "superadmin") loadPending();
   })(); }, []);
 
   const refresh = async () => {
@@ -675,6 +728,15 @@ function App({session}) {
       if (error) { alert("Erreur d'accès à la photo"); return; }
       window.open(data.signedUrl, "_blank");
     },
+    approveProfile: async (pid, org_id, role) => {
+      await sb.from("profiles").update({org_id, role, pending:false}).eq("id",pid);
+      loadPending();
+    },
+    rejectProfile: async pid => {
+      if (!confirm("Refuser cette demande ? La personne ne pourra pas accéder à MaintX.")) return;
+      await sb.from("profiles").delete().eq("id",pid);
+      loadPending();
+    },
     addOrg: async name => {
       const slug = name.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"");
       await sb.from("organizations").insert({name,slug});
@@ -771,6 +833,18 @@ function App({session}) {
   const machineName = id => machines.find(m=>m.id===id)?.name || "?";
 
   if (error) return <Center><div style={{textAlign:"center"}}><div style={{color:"var(--alarm)",font:"600 14px system-ui",marginBottom:16}}>{error}</div><button className="btn" onClick={()=>sb.auth.signOut()}>Se déconnecter</button></div></Center>;
+  if (profile && profile.pending) return (
+    <Center>
+      <div style={{background:"#fff",padding:32,width:400,maxWidth:"94vw",borderTop:"5px solid var(--accent)",textAlign:"center"}}>
+        <div style={{fontSize:40}}>⏳</div>
+        <div style={{font:"800 17px system-ui",marginTop:4}}>Compte en attente de validation</div>
+        <div style={{font:"500 13px system-ui",color:"var(--muted)",margin:"10px 0 18px"}}>
+          Bonjour {profile.full_name}. Votre accès n'a pas encore été autorisé par MaintX. Vous recevrez l'accès dès validation.
+        </div>
+        <button className="btn" onClick={()=>sb.auth.signOut()}>Se déconnecter</button>
+      </div>
+    </Center>
+  );
   if (!profile || !orgId) return <Center>Chargement…</Center>;
 
   const NAV = [
@@ -785,7 +859,7 @@ function App({session}) {
       ["pieces","Pièces détachées","🔩",kpi.lowStock,"var(--warn)"],
     ]},
     {sec:"Analyse", items:[["analyse","Analyse","📈"]]},
-    ...(isSuper?[{sec:"Superadmin", items:[["admin","Clients","👥"]]}]:[]),
+    ...(isSuper?[{sec:"Superadmin", items:[["admin","Clients & accès","👥",pendingProfiles.length,"var(--accent)"]]}]:[]),
   ];
 
   return (
@@ -860,6 +934,7 @@ function App({session}) {
         {view.name==="pieces" && <Pieces parts={parts} setModal={setModal} db={db}/>}
         {view.name==="analyse" && <Analyse machines={machines} interventions={interventions} org={org} db={db} role={profile.role}/>}
         {view.name==="admin" && isSuper && <>
+          <PendingRequests pending={pendingProfiles} orgs={orgs} db={db}/>
           <Toolbar><H2>Clients ({orgs.length})</H2><button className="btn" onClick={()=>setModal("org")}>+ Nouveau client</button></Toolbar>
           {orgs.map(o=>(
             <Row key={o.id}>
@@ -1441,6 +1516,39 @@ function ChecklistModal({plan,onClose,onValidate}) {
         ✓ Valider ({nb}/{steps.length} faits)
       </button>
     </Modal>
+  );
+}
+
+/* ------------------------- DEMANDES D'ACCÈS (validation superadmin) ------------------------- */
+function PendingRequests({pending,orgs,db}) {
+  if (!pending.length) return null;
+  return <>
+    <H2>Demandes d'accès en attente ({pending.length})</H2>
+    <div style={{font:"500 13px system-ui",color:"var(--muted)",marginBottom:12}}>
+      Personnes inscrites qui attendent votre validation. Affectez chacune à une entreprise et un rôle, ou refusez.
+    </div>
+    {pending.map(p=><PendingRow key={p.id} p={p} orgs={orgs} db={db}/>)}
+  </>;
+}
+
+function PendingRow({p,orgs,db}) {
+  const [org,setOrg] = useState(orgs[0]?.id);
+  const [role,setRole] = useState("operator");
+  return (
+    <Row style={{borderLeft:"4px solid var(--accent)"}}>
+      <div style={{flex:"1 1 200px"}}>
+        <b>{p.full_name}</b>
+        <div style={{font:"500 12px system-ui",color:"var(--muted)",marginTop:2}}>
+          {p.requested_org ? `Entreprise déclarée : ${p.requested_org}` : "Entreprise non précisée"} · inscrit le {p.created_at?.slice(0,10)}
+        </div>
+      </div>
+      <Dropdown width={180} value={org} placeholder="Entreprise…"
+                options={orgs.map(o=>({value:o.id,label:o.name}))} onChange={setOrg}/>
+      <Dropdown width={150} value={role}
+                options={Object.entries(ROLES).map(([k,v])=>({value:k,label:v.label,sub:v.desc}))} onChange={setRole}/>
+      <button className="btn sm" disabled={!org} onClick={()=>db.approveProfile(p.id,org,role)}>✅ Autoriser</button>
+      <button className="btn ghost sm" onClick={()=>db.rejectProfile(p.id)}>✕ Refuser</button>
+    </Row>
   );
 }
 

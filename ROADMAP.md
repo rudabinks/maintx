@@ -106,7 +106,10 @@ plus. En cas de doute : moins de clics, moins de champs, plus gros boutons.
 - [x] Import CSV du parc machines (v0.13) : bouton "⤒ Importer CSV" dans le Parc,
       coller depuis Excel ou fichier .csv, détection séparateur (;/,/tab) + en-têtes
       accentués, criticité 1-3 ou texte, aperçu avant import, insertion en masse
-- [ ] Création des comptes utilisateurs clients depuis l'admin superadmin
+- [x] Comptes clients (v0.14) : inscription libre (nom, entreprise, email, mdp) →
+      profil "en attente" (trigger handle_new_user) → superadmin autorise dans Admin
+      (affecte org + rôle) ou refuse. Écran "en attente" tant que non validé,
+      badge sur le menu Admin — patch-v13.sql
 - [ ] Migration Vite + React multi-fichiers (même design/comportement)
 - [ ] Facturation Stripe
 - [ ] Plan Connect : ingestion machine_events + TRS (FOCAS/MTConnect, alternance

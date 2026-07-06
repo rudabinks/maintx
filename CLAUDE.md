@@ -31,7 +31,9 @@ Vues : v_kpi_machine, v_chronic_failures (avec security_invoker = true).
   en security definer, accessibles au rôle anon. La déclaration passe la machine en `alarm`.
 
 ## Fonctionnalités actuelles (v0.4)
-- Auth email/mot de passe. Comptes créés par l'admin (pas d'inscription publique).
+- Auth email/mot de passe. Inscription libre (signUp) → profil créé en attente
+  (trigger handle_new_user, patch-v13.sql) → le superadmin autorise depuis l'onglet
+  Admin (affecte org + rôle, profiles.pending passe à false) ou refuse (delete).
 - Multi-tenant : superadmin switch entre clients, crée des orgs depuis l'onglet Admin.
 - Dashboard : bandeau "andon" (pastilles type colonne lumineuse, clignote si panne),
   KPI (pannes, interventions ouvertes, MTTR calculé sur started_at/finished_at,
