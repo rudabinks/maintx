@@ -8,6 +8,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <style>
   :root {
@@ -72,12 +73,14 @@
 const SUPABASE_URL = "https://krfrzuxdymgzttkdcaab.supabase.co";
 const SUPABASE_KEY = "sb_publishable_KXSWUiTsFqU6aDf67rF51g_t_px3jkt";
 const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+// pdf.js : extraction du texte des PDF dans le navigateur (pour l'indexation Mécano)
+if (window.pdfjsLib) window.pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
 // URL des Edge Functions (attention : le slug est figé au déploiement, le renommage ne le change pas)
 const FN = {
   voice:  SUPABASE_URL+"/functions/v1/voice-report",
   brief:  SUPABASE_URL+"/functions/v1/rapid-function",
-  ingest: SUPABASE_URL+"/functions/v1/super-service",
   ask:    SUPABASE_URL+"/functions/v1/swift-api",
+  // (indexation PDF : désormais côté navigateur via pdf.js, plus d'Edge Function)
 };
 
 const { useState, useEffect, useMemo, useRef } = React;
@@ -770,18 +773,31 @@ function App({session}) {
     },
     ingestDoc: async (d, silent) => {
       try {
-        const {data:{session}} = await sb.auth.getSession();
-        const res = await fetch(FN.ingest, {
-          method:"POST",
-          headers:{"Content-Type":"application/json","Authorization":"Bearer "+session.access_token,"apikey":SUPABASE_KEY},
-          body:JSON.stringify({document_id:d.id}),
-        });
-        const p = await res.json();
-        if (!res.ok || p.error) throw new Error(p.error||res.status);
-        if (!silent && p.chunks===0) alert("Aucun texte lisible dans ce PDF (document scanné ?) — Mécano ne pourra pas s'en servir.");
+        if (!window.pdfjsLib) throw new Error("pdf.js non chargé (rechargez la page)");
+        const {data:blob,error:e0} = await sb.storage.from("docs").download(d.storage_path);
+        if (e0 || !blob) throw new Error("téléchargement du PDF impossible");
+        const buf = new Uint8Array(await blob.arrayBuffer());
+        const pdf = await window.pdfjsLib.getDocument({data:buf}).promise;
+        const chunks = [];
+        for (let pg=1; pg<=pdf.numPages; pg++) {
+          const page = await pdf.getPage(pg);
+          const content = await page.getTextContent();
+          const clean = content.items.map(it=>it.str).join(" ").replace(/\s+/g," ").trim();
+          if (clean.length < 30) continue; // page vide ou scannée sans texte
+          for (let k=0; k<clean.length; k+=1100) chunks.push({page:pg, content:clean.slice(k,k+1250)});
+        }
+        await sb.from("doc_chunks").delete().eq("document_id",d.id);
+        for (let k=0; k<chunks.length; k+=200) {
+          const rows = chunks.slice(k,k+200).map(c=>({org_id:d.org_id,machine_id:d.machine_id,document_id:d.id,doc_name:d.name,page:c.page,content:c.content}));
+          const {error:e3} = await sb.from("doc_chunks").insert(rows);
+          if (e3) throw new Error("insertion : "+e3.message);
+        }
+        await sb.from("machine_documents").update({indexed_at:new Date().toISOString()}).eq("id",d.id);
         refresh();
+        if (!silent) alert(chunks.length ? `${chunks.length} extrait(s) indexé(s) — Mécano peut lire « ${d.name} ».`
+                                         : "Aucun texte lisible (PDF scanné ?) — Mécano ne pourra pas s'en servir.");
       } catch(e) {
-        if (!silent) alert("Indexation impossible : "+(e.message||e)+" — la fonction doc-ingest est-elle déployée ?");
+        if (!silent) alert("Indexation impossible : "+(e.message||e));
       }
     },
     askMecano: async (machine, question) => {
