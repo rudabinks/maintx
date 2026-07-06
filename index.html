@@ -766,10 +766,8 @@ function App({session}) {
       const path = `${orgId}/${machineId}/${Date.now()}_${file.name.replace(/[^a-zA-Z0-9._-]/g,"_")}`;
       const {error:e1} = await sb.storage.from("docs").upload(path, file);
       if (e1) { alert("Erreur upload : "+e1.message); return; }
-      const {data:doc} = await sb.from("machine_documents").insert({org_id:orgId,machine_id:machineId,category,name:file.name,storage_path:path,uploaded_by:profile.id}).select().single();
+      await sb.from("machine_documents").insert({org_id:orgId,machine_id:machineId,category,name:file.name,storage_path:path,uploaded_by:profile.id});
       refresh();
-      // Les PDF sont indexés automatiquement pour Mécano
-      if (doc && file.name.toLowerCase().endsWith(".pdf")) db.ingestDoc(doc, true);
     },
     ingestDoc: async (d, silent) => {
       try {
@@ -1162,13 +1160,12 @@ function MachineDetail({machine,docs,interventions,parts,plans,db,back}) {
     {degModal && <DegradedModal machine={machine} onClose={()=>setDegModal(false)}
                                 onSave={(cond,dl)=>{db.setDegraded(machine.id,cond,dl);setDegModal(false);}}/>}
     <div style={{borderBottom:"1.5px solid #D5D8DC",marginBottom:16}}>
-      {[["infos","Infos & specs"],["activite","Activité"],["docs",`Documents (${docs.length})`],["mecano","🔧 Mécano"],["histo",`Historique (${interventions.length})`],["qr","QR code"]].map(([k,l])=>(
+      {[["infos","Infos & specs"],["activite","Activité"],["docs",`Documents (${docs.length})`],["histo",`Historique (${interventions.length})`],["qr","QR code"]].map(([k,l])=>(
         <button key={k} className={"tab"+(tab===k?" active":"")} onClick={()=>setTab(k)}>{l}</button>
       ))}
     </div>
     {tab==="infos" && <><MeterBox machine={machine} db={db}/><Specs machine={machine} db={db}/></>}
     {tab==="activite" && <ActivityTab machine={machine} interventions={interventions} docs={docs} plans={plans||[]} db={db}/>}
-    {tab==="mecano" && <Mecano machine={machine} docs={docs} db={db}/>}
     {tab==="docs" && <Docs machine={machine} docs={docs} db={db}/>}
     {tab==="histo" && <>
       {interventions.map(i=><IRow key={i.id} i={i} machineName={()=>""} db={db} full parts={parts}/>)}
@@ -1292,7 +1289,7 @@ function Docs({machine,docs,db}) {
                const fs = [...e.target.files]; e.target.value = "";
                for (const f of fs) await db.uploadDoc(machine.id, f, cat);
              }}/>
-      <span style={{font:"500 11px system-ui",color:"var(--muted)"}}>Fichier stocké dans MaintX (max 50 Mo, compressez les gros PDF) — lisible par Mécano 🧠</span>
+      <span style={{font:"500 11px system-ui",color:"var(--muted)"}}>Fichier stocké dans MaintX (max 50 Mo, compressez les gros PDF)</span>
     </div>
     <div className="card" style={{display:"flex",gap:10,alignItems:"center",marginBottom:14,flexWrap:"wrap"}}>
       <b style={{font:"700 12px system-ui",textTransform:"uppercase"}}>🔗 Ou par lien :</b>
@@ -1301,7 +1298,7 @@ function Docs({machine,docs,db}) {
       <input placeholder="Nom (ex: Catalogue pièces 2024)" value={linkName}
              onChange={e=>setLinkName(e.target.value)} style={{flex:"1 1 160px",width:"auto"}}/>
       <button className="btn sm" disabled={!linkUrl.trim()} onClick={addLink}>Ajouter</button>
-      <span style={{font:"500 11px system-ui",color:"var(--muted)"}}>Ne compte pas dans le stockage, mais Mécano ne peut pas le lire.</span>
+      <span style={{font:"500 11px system-ui",color:"var(--muted)"}}>Ne compte pas dans le stockage MaintX.</span>
     </div>
     {Object.entries(DOCCAT).map(([k,v])=>{
       const list = docs.filter(d=>d.category===k);
@@ -1319,9 +1316,6 @@ function Docs({machine,docs,db}) {
                         options={Object.entries(DOCCAT).map(([k,v])=>({value:k,label:v.label,color:v.color}))}
                         onChange={cat=>db.setDocCategory(d,cat)}/>
               {d.storage_path?.startsWith("http") && <span title="Document externe (lien)" style={{font:"600 11px system-ui",color:"var(--muted)"}}>🔗</span>}
-              {!d.storage_path?.startsWith("http") && d.name?.toLowerCase().endsWith(".pdf") && (d.indexed_at
-                ? <span title="Lisible par Mécano" style={{font:"600 11px system-ui",color:"var(--run)"}}>🧠 ✓</span>
-                : <button className="btn ghost sm" title="Rendre lisible par l'assistant Mécano" onClick={()=>db.ingestDoc(d)}>🧠 Indexer</button>)}
               <button className="btn ghost sm" onClick={()=>db.openDoc(d)}>Ouvrir</button>
               <button className="btn ghost sm" onClick={()=>db.deleteDoc(d)}>✕</button>
             </Row>
