@@ -569,6 +569,7 @@ function App({session}) {
       if (!res.ok || p.error) throw new Error(p.error||res.status);
       return p;
     },
+    setDocCategory: async (d,cat) => { await sb.from("machine_documents").update({category:cat}).eq("id",d.id); refresh(); },
     addDocLink: async (machineId, url, name, category) => {
       await sb.from("machine_documents").insert({org_id:orgId,machine_id:machineId,category,name,storage_path:url,uploaded_by:profile.id});
       refresh();
@@ -1044,6 +1045,9 @@ function Docs({machine,docs,db}) {
                 <b style={{font:"600 13px system-ui"}}>📄 {d.name}</b>
                 <div style={{font:"500 11px system-ui",color:"var(--muted)"}}>{d.created_at?.slice(0,10)}</div>
               </div>
+              <Dropdown width={150} align="right" value={d.category}
+                        options={Object.entries(DOCCAT).map(([k,v])=>({value:k,label:v.label,color:v.color}))}
+                        onChange={cat=>db.setDocCategory(d,cat)}/>
               {d.storage_path?.startsWith("http") && <span title="Document externe (lien)" style={{font:"600 11px system-ui",color:"var(--muted)"}}>🔗</span>}
               {!d.storage_path?.startsWith("http") && d.name?.toLowerCase().endsWith(".pdf") && (d.indexed_at
                 ? <span title="Lisible par Mécano" style={{font:"600 11px system-ui",color:"var(--run)"}}>🧠 ✓</span>
