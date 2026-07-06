@@ -22,6 +22,17 @@
   .nav .ico{width:18px;text-align:center;flex:none}
   .navsec{font:700 10px system-ui;letter-spacing:.14em;text-transform:uppercase;color:#5E646E;padding:18px 16px 6px}
   .navbadge{margin-left:auto;color:#fff;font:700 10px system-ui;padding:2px 7px;min-width:14px;text-align:center}
+  .mobilebar{display:none}
+  .sbclose{display:none}
+  .main{padding:28px 36px}
+  @media (max-width:760px){
+    .layout{flex-direction:column}
+    .mobilebar{display:flex;align-items:center;gap:10px;position:sticky;top:0;z-index:70;background:var(--ink);padding:10px 14px}
+    .sidebar{display:none !important}
+    .sidebar.open{display:flex !important;position:fixed !important;inset:0 !important;width:100% !important;height:100vh !important;z-index:80}
+    .sbclose{display:block}
+    .main{padding:14px 12px}
+  }
   .btn{background:var(--ink);color:var(--accent);border:0;padding:10px 18px;font:700 13px system-ui;text-transform:uppercase;letter-spacing:.05em;cursor:pointer}
   .btn:hover{background:#000}.btn:disabled{opacity:.4;cursor:default}
   .btn.ghost{background:transparent;color:var(--ink);border:1.5px solid var(--ink)}
@@ -393,6 +404,7 @@ function App({session}) {
   const [view,setView] = useState({name:"dashboard"});
   const [modal,setModal] = useState(null);
   const [error,setError] = useState(null);
+  const [navOpen,setNavOpen] = useState(false);
 
   const isSuper = profile?.role === "superadmin";
   const org = orgs.find(o=>o.id===orgId);
@@ -528,7 +540,11 @@ function App({session}) {
     },
     donePreventif: async (p,steps) => {
       const m = machines.find(x=>x.id===p.machine_id);
-      await sb.from("preventive_plans").update({next_due:addDays(today(),p.freq_days),last_done_hours:m?+m.meter_hours:+p.last_done_hours}).eq("id",p.id);
+      // freq_days = 0 → tâche ponctuelle : on la désactive au lieu de la replanifier
+      const patch = +p.freq_days>0
+        ? {next_due:addDays(today(),p.freq_days), last_done_hours:m?+m.meter_hours:+p.last_done_hours}
+        : {active:false};
+      await sb.from("preventive_plans").update(patch).eq("id",p.id);
       const desc = steps?.length ? "Checklist :\n"+steps.map(s=>(s.done?"✓ ":"✗ ")+s.step).join("\n") : null;
       await sb.from("interventions").insert({org_id:orgId,machine_id:p.machine_id,type:"preventive",priority:1,title:p.title,description:desc,status:"done",reported_by:profile.id,started_at:new Date().toISOString(),finished_at:new Date().toISOString()});
       refresh();
@@ -625,8 +641,16 @@ function App({session}) {
   ];
 
   return (
-    <div style={{display:"flex",minHeight:"100vh"}}>
-      <aside style={{width:220,background:"var(--ink)",display:"flex",flexDirection:"column",padding:"20px 0",position:"sticky",top:0,height:"100vh",overflowY:"auto",flexShrink:0}}>
+    <div className="layout" style={{display:"flex",minHeight:"100vh"}}>
+      <div className="mobilebar">
+        <div style={{fontFamily:"var(--display)",fontSize:17,color:"#fff",flex:1}}>
+          <span style={{color:"var(--accent)",marginRight:5}}>▮▮</span>MAINT<span style={{color:"var(--accent)"}}>X</span>
+        </div>
+        {kpi.pannes>0 && <span className="navbadge" style={{background:"var(--alarm)"}}>{kpi.pannes} panne{kpi.pannes>1?"s":""}</span>}
+        <button className="btn sm" onClick={()=>setNavOpen(true)}>☰ Menu</button>
+      </div>
+      <aside className={"sidebar"+(navOpen?" open":"")} style={{width:220,background:"var(--ink)",display:"flex",flexDirection:"column",padding:"20px 0",position:"sticky",top:0,height:"100vh",overflowY:"auto",flexShrink:0}}>
+        <button className="btn ghost sm sbclose" style={{position:"absolute",top:16,right:14,color:"#C9CCD1",borderColor:"#444"}} onClick={()=>setNavOpen(false)}>✕ Fermer</button>
         <div style={{fontFamily:"var(--display)",fontSize:20,color:"#fff",padding:"0 16px 10px"}}>
           <span style={{color:"var(--accent)",marginRight:6}}>▮▮</span>MAINT<span style={{color:"var(--accent)"}}>X</span>
         </div>
@@ -634,7 +658,7 @@ function App({session}) {
           <div key={sec.sec}>
             <div className="navsec">{sec.sec}</div>
             {sec.items.map(([k,label,ico,badge,badgeColor])=>(
-              <button key={k} className={"nav"+(view.name===k?" active":"")} onClick={()=>setView({name:k})}>
+              <button key={k} className={"nav"+(view.name===k?" active":"")} onClick={()=>{setView({name:k});setNavOpen(false);}}>
                 <span className="ico">{ico}</span>{label}
                 {badge>0 && <span className="navbadge" style={{background:badgeColor,color:badgeColor==="var(--accent)"?"var(--ink)":"#fff"}}>{badge}</span>}
               </button>
@@ -647,9 +671,9 @@ function App({session}) {
         </div>
       </aside>
 
-      <main style={{flex:1,padding:"28px 36px",minWidth:0}}>
+      <main className="main" style={{flex:1,minWidth:0}}>
        <div style={{maxWidth:1100,margin:"0 auto"}}>
-        <header style={{display:"flex",justifyContent:"space-between",alignItems:"flex-end",marginBottom:24}}>
+        <header style={{display:"flex",justifyContent:"space-between",alignItems:"flex-end",marginBottom:24,flexWrap:"wrap",gap:12}}>
           <div>
             <div style={{font:"700 10px system-ui",textTransform:"uppercase",letterSpacing:".12em",color:"var(--muted)",marginBottom:4}}>
               Plan {org?.plan==="connect"?"Connect · machines connectées":"Standard"}
@@ -1214,7 +1238,7 @@ function Preventif({preventifs,machines,machineName,db,setModal}) {
   const [checkFor,setCheckFor] = useState(null);
   return <>
     <Toolbar><H2>Gammes préventives</H2><button className="btn" onClick={()=>setModal("preventif")}>+ Nouvelle gamme</button></Toolbar>
-    {preventifs.map(p=>{
+    {preventifs.filter(p=>p.active!==false).map(p=>{
       const hDue = planHoursDue(p,machines);
       const late = p.active && (p.next_due<=today() || hDue);
       const nbSteps = p.checklist?.length || 0;
@@ -1224,7 +1248,7 @@ function Preventif({preventifs,machines,machineName,db,setModal}) {
           <div style={{flex:1}}>
             <b>{p.title}</b>
             <div style={{font:"500 12px system-ui",color:"var(--muted)",marginTop:2}}>
-              {machineName(p.machine_id)} · tous les {p.freq_days} j
+              {machineName(p.machine_id)} · {+p.freq_days>0 ? `tous les ${p.freq_days} j` : "une seule fois"}
               {p.freq_hours ? ` ou ${+p.freq_hours} h (${m?Math.max(0,+m.meter_hours-+p.last_done_hours):0}/${+p.freq_hours} h)` : ""}
               {nbSteps>0 && ` · ☑ ${nbSteps} points`}
             </div>
@@ -1567,7 +1591,7 @@ function Foldable({title,children,defaultOpen=false}) {
 }
 const Toolbar = ({children}) => <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>{children}</div>;
 const Empty = ({children}) => <div style={{font:"500 13px system-ui",color:"var(--muted)",padding:"20px 0"}}>{children}</div>;
-const Row = ({children,style}) => <div style={{background:"var(--panel)",padding:"12px 16px",display:"flex",alignItems:"center",gap:12,marginBottom:8,...style}}>{children}</div>;
+const Row = ({children,style}) => <div style={{background:"var(--panel)",padding:"12px 16px",display:"flex",alignItems:"center",gap:12,marginBottom:8,flexWrap:"wrap",...style}}>{children}</div>;
 
 function Kpi({label,value,alert}) {
   return (
@@ -1839,7 +1863,7 @@ function InterventionModal({machines,onClose,onSave}) {
 }
 
 function PreventifModal({machines,onClose,onSave}) {
-  const [f,setF] = useState({machine:machines[0]?.id,title:"",freq:30,freqH:"",next:today(),checklist:[]});
+  const [f,setF] = useState({machine:machines[0]?.id,title:"",freq:30,freqH:"",next:today(),checklist:[],once:false});
   const [step,setStep] = useState("");
   const addStep = () => { if(!step.trim()) return; setF({...f,checklist:[...f.checklist,step.trim()]}); setStep(""); };
   return (
@@ -1849,10 +1873,16 @@ function PreventifModal({machines,onClose,onSave}) {
                 options={machines.map(m=>({value:m.id,label:(m.code?m.code+" — ":"")+m.name,sub:m.family}))}
                 onChange={v=>setF({...f,machine:v})}/>
       <input placeholder="Titre (ex: Contrôle niveaux + graissage)" value={f.title} onChange={e=>setF({...f,title:e.target.value})} style={{marginBottom:10}}/>
-      <label style={{font:"500 12px system-ui",color:"var(--muted)"}}>Périodicité (jours)</label>
-      <input type="number" min="1" value={f.freq} onChange={e=>setF({...f,freq:+e.target.value})} style={{marginBottom:10}}/>
-      <label style={{font:"500 12px system-ui",color:"var(--muted)"}}>Ou au compteur (heures machine, optionnel — ex: 500)</label>
-      <input type="number" min="1" placeholder="—" value={f.freqH} onChange={e=>setF({...f,freqH:e.target.value})} style={{marginBottom:10}}/>
+      <label style={{display:"flex",alignItems:"center",gap:8,font:"600 13px system-ui",margin:"2px 0 10px",cursor:"pointer"}}>
+        <input type="checkbox" checked={f.once} style={{width:17,height:17,margin:0}} onChange={e=>setF({...f,once:e.target.checked})}/>
+        Une seule fois (pas de périodicité) — la tâche disparaît une fois faite
+      </label>
+      {!f.once && <>
+        <label style={{font:"500 12px system-ui",color:"var(--muted)"}}>Périodicité (jours)</label>
+        <input type="number" min="1" value={f.freq} onChange={e=>setF({...f,freq:+e.target.value})} style={{marginBottom:10}}/>
+        <label style={{font:"500 12px system-ui",color:"var(--muted)"}}>Ou au compteur (heures machine, optionnel — ex: 500)</label>
+        <input type="number" min="1" placeholder="—" value={f.freqH} onChange={e=>setF({...f,freqH:e.target.value})} style={{marginBottom:10}}/>
+      </>}
       <label style={{font:"500 12px system-ui",color:"var(--muted)"}}>Première échéance</label>
       <input type="date" value={f.next} onChange={e=>setF({...f,next:e.target.value})} style={{marginBottom:10}}/>
       <label style={{font:"500 12px system-ui",color:"var(--muted)"}}>Checklist (optionnel) — points que le technicien cochera</label>
@@ -1867,7 +1897,7 @@ function PreventifModal({machines,onClose,onSave}) {
                onChange={e=>setStep(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"){e.preventDefault();addStep();}}}/>
         <button className="btn sm" disabled={!step.trim()} onClick={addStep}>+</button>
       </div>
-      <button className="btn" disabled={!f.title||!f.machine} onClick={()=>onSave(f)} style={{width:"100%",marginTop:6}}>Créer</button>
+      <button className="btn" disabled={!f.title||!f.machine} onClick={()=>onSave({...f, freq:f.once?0:f.freq, freqH:f.once?"":f.freqH})} style={{width:"100%",marginTop:6}}>Créer</button>
     </Modal>
   );
 }
