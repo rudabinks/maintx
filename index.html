@@ -569,14 +569,19 @@ function App({session}) {
       if (!res.ok || p.error) throw new Error(p.error||res.status);
       return p;
     },
+    addDocLink: async (machineId, url, name, category) => {
+      await sb.from("machine_documents").insert({org_id:orgId,machine_id:machineId,category,name,storage_path:url,uploaded_by:profile.id});
+      refresh();
+    },
     openDoc: async d => {
+      if (d.storage_path?.startsWith("http")) { window.open(d.storage_path, "_blank"); return; }
       const {data,error} = await sb.storage.from("docs").createSignedUrl(d.storage_path, 3600);
       if (error) { alert("Erreur d'accès au document"); return; }
       window.open(data.signedUrl, "_blank");
     },
     deleteDoc: async d => {
       if (!confirm(`Supprimer "${d.name}" ?`)) return;
-      await sb.storage.from("docs").remove([d.storage_path]);
+      if (!d.storage_path?.startsWith("http")) await sb.storage.from("docs").remove([d.storage_path]);
       await sb.from("machine_documents").delete().eq("id",d.id);
       refresh();
     },
@@ -997,16 +1002,32 @@ function Specs({machine,db}) {
 
 function Docs({machine,docs,db}) {
   const [cat,setCat] = useState("maintenance");
+  const [linkUrl,setLinkUrl] = useState("");
+  const [linkName,setLinkName] = useState("");
   const fileRef = useRef();
+  const addLink = () => {
+    if (!linkUrl.trim().startsWith("http")) { alert("Collez un lien complet (https://…)"); return; }
+    db.addDocLink(machine.id, linkUrl.trim(), linkName.trim()||"Document en ligne", cat);
+    setLinkUrl(""); setLinkName("");
+  };
   return <>
-    <div className="card" style={{display:"flex",gap:10,alignItems:"center",marginBottom:14,flexWrap:"wrap"}}>
+    <div className="card" style={{display:"flex",gap:10,alignItems:"center",marginBottom:10,flexWrap:"wrap"}}>
       <b style={{font:"700 12px system-ui",textTransform:"uppercase"}}>Ajouter un document :</b>
       <Dropdown width={175} value={cat}
                 options={Object.entries(DOCCAT).map(([k,v])=>({value:k,label:v.label,color:v.color}))}
                 onChange={setCat}/>
       <input type="file" ref={fileRef} style={{width:"auto",border:0,padding:0}}
              onChange={e=>{const f=e.target.files[0]; if(f){db.uploadDoc(machine.id,f,cat); e.target.value="";}}}/>
-      <span style={{font:"500 11px system-ui",color:"var(--muted)"}}>PDF, schémas, notices… (max 50 Mo)</span>
+      <span style={{font:"500 11px system-ui",color:"var(--muted)"}}>Fichier stocké dans MaintX (max 50 Mo, compressez les gros PDF) — lisible par Mécano 🧠</span>
+    </div>
+    <div className="card" style={{display:"flex",gap:10,alignItems:"center",marginBottom:14,flexWrap:"wrap"}}>
+      <b style={{font:"700 12px system-ui",textTransform:"uppercase"}}>🔗 Ou par lien :</b>
+      <input placeholder="https://drive.google.com/… (Drive, Dropbox, site constructeur)" value={linkUrl}
+             onChange={e=>setLinkUrl(e.target.value)} style={{flex:"1 1 240px",width:"auto"}}/>
+      <input placeholder="Nom (ex: Catalogue pièces 2024)" value={linkName}
+             onChange={e=>setLinkName(e.target.value)} style={{flex:"1 1 160px",width:"auto"}}/>
+      <button className="btn sm" disabled={!linkUrl.trim()} onClick={addLink}>Ajouter</button>
+      <span style={{font:"500 11px system-ui",color:"var(--muted)"}}>Ne compte pas dans le stockage, mais Mécano ne peut pas le lire.</span>
     </div>
     {Object.entries(DOCCAT).map(([k,v])=>{
       const list = docs.filter(d=>d.category===k);
@@ -1020,7 +1041,8 @@ function Docs({machine,docs,db}) {
                 <b style={{font:"600 13px system-ui"}}>📄 {d.name}</b>
                 <div style={{font:"500 11px system-ui",color:"var(--muted)"}}>{d.created_at?.slice(0,10)}</div>
               </div>
-              {d.name?.toLowerCase().endsWith(".pdf") && (d.indexed_at
+              {d.storage_path?.startsWith("http") && <span title="Document externe (lien)" style={{font:"600 11px system-ui",color:"var(--muted)"}}>🔗</span>}
+              {!d.storage_path?.startsWith("http") && d.name?.toLowerCase().endsWith(".pdf") && (d.indexed_at
                 ? <span title="Lisible par Mécano" style={{font:"600 11px system-ui",color:"var(--run)"}}>🧠 ✓</span>
                 : <button className="btn ghost sm" title="Rendre lisible par l'assistant Mécano" onClick={()=>db.ingestDoc(d)}>🧠 Indexer</button>)}
               <button className="btn ghost sm" onClick={()=>db.openDoc(d)}>Ouvrir</button>
