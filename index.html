@@ -1016,8 +1016,11 @@ function Docs({machine,docs,db}) {
       <Dropdown width={175} value={cat}
                 options={Object.entries(DOCCAT).map(([k,v])=>({value:k,label:v.label,color:v.color}))}
                 onChange={setCat}/>
-      <input type="file" ref={fileRef} style={{width:"auto",border:0,padding:0}}
-             onChange={e=>{const f=e.target.files[0]; if(f){db.uploadDoc(machine.id,f,cat); e.target.value="";}}}/>
+      <input type="file" multiple ref={fileRef} style={{width:"auto",border:0,padding:0}}
+             onChange={async e=>{
+               const fs = [...e.target.files]; e.target.value = "";
+               for (const f of fs) await db.uploadDoc(machine.id, f, cat);
+             }}/>
       <span style={{font:"500 11px system-ui",color:"var(--muted)"}}>Fichier stocké dans MaintX (max 50 Mo, compressez les gros PDF) — lisible par Mécano 🧠</span>
     </div>
     <div className="card" style={{display:"flex",gap:10,alignItems:"center",marginBottom:14,flexWrap:"wrap"}}>
