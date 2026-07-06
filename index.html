@@ -187,6 +187,93 @@ function Center({children}) {
   return <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>{children}</div>;
 }
 
+/* ------------------------- ESPACE TECHNICIEN (scan QR connecté) ------------------------- */
+function QRTechPanel({machine,session,onDeclare}) {
+  const [profile,setProfile] = useState(null);
+  const [ints,setInts] = useState(null);
+  const [ntitle,setNtitle] = useState("");
+  const [creating,setCreating] = useState(false);
+  const load = async () => {
+    const {data} = await sb.from("interventions").select("*")
+      .eq("machine_id",machine.id).neq("status","done")
+      .order("reported_at",{ascending:false});
+    setInts(data||[]);
+  };
+  useEffect(() => {
+    sb.from("profiles").select("*").eq("id",session.user.id).single().then(({data})=>setProfile(data));
+    load();
+  }, []);
+  const orgId = () => (ints && ints[0]?.org_id) || profile?.org_id;
+  const tdb = {
+    addComment: async (iid,body) => {
+      const it = (ints||[]).find(x=>x.id===iid);
+      await sb.from("intervention_comments").insert({org_id:it?.org_id||orgId(),intervention_id:iid,author_id:profile?.id,body});
+    },
+    setInterventionCause: async (iid,cause) => { await sb.from("interventions").update({failure_cause:cause}).eq("id",iid); },
+    setInterventionStatus: async (i,st) => {
+      const patch = {status:st};
+      if (st!=="open" && !i.acked_at) patch.acked_at = new Date().toISOString();
+      if (st==="in_progress") patch.started_at = new Date().toISOString();
+      if (st==="done") patch.finished_at = new Date().toISOString();
+      await sb.from("interventions").update(patch).eq("id",i.id);
+    },
+    fetchComments: async () => [],
+  };
+  const createInt = async () => {
+    if (!ntitle.trim()) return;
+    await sb.from("interventions").insert({org_id:profile.org_id,machine_id:machine.id,type:"curative",priority:2,
+      title:ntitle.trim(),reported_by:profile.id,triage:"accepted",status:"in_progress",
+      started_at:new Date().toISOString(),acked_at:new Date().toISOString()});
+    setNtitle(""); setCreating(false); load();
+  };
+  return (
+    <Center>
+      <div style={{background:"#fff",padding:24,width:460,maxWidth:"96vw",borderTop:"5px solid var(--accent)"}}>
+        <div style={{fontFamily:"var(--display)",fontSize:18,marginBottom:2}}>
+          <span style={{color:"var(--accent)"}}>▮▮</span> MAINT<span style={{color:"var(--accent)"}}>X</span>
+        </div>
+        <div style={{font:"600 11px system-ui",textTransform:"uppercase",letterSpacing:".1em",color:"var(--muted)",marginBottom:16}}>
+          Espace technicien{profile?` · ${profile.full_name}`:""}
+        </div>
+        <div style={{background:"var(--bg)",padding:"12px 16px",marginBottom:18}}>
+          <div style={{font:"700 10px ui-monospace,monospace",color:"var(--muted)",textTransform:"uppercase"}}>{machine.code} · {machine.family}</div>
+          <div style={{fontWeight:800,fontSize:17}}>{machine.name}</div>
+        </div>
+
+        {ints === null && <div style={{font:"500 13px system-ui",color:"var(--muted)"}}>Chargement…</div>}
+        {ints && ints.length===0 && <div style={{font:"500 13px system-ui",color:"var(--muted)",marginBottom:14}}>Aucune intervention ouverte sur cette machine.</div>}
+        {ints && ints.map(i=>(
+          <div key={i.id} style={{border:"1.5px solid #E3E5E8",padding:"12px 14px",marginBottom:12}}>
+            <div style={{font:"700 14px system-ui"}}>{i.title}</div>
+            <div style={{font:"500 12px system-ui",color:"var(--muted)",margin:"2px 0 10px"}}>
+              {ITYPE[i.type]} · {ISTATUS[i.status]?.label} · {i.reported_at?.slice(0,10)}
+              {i.triage==="pending" && <span style={{color:"var(--accent)",fontWeight:700}}> · à trier</span>}
+            </div>
+            <VoiceReport i={i} db={tdb} onApplied={load}/>
+          </div>
+        ))}
+
+        {creating ? (
+          <div style={{border:"1.5px dashed #C9CCD1",padding:"12px 14px"}}>
+            <input placeholder="Titre de l'intervention (ex: Graissage glissières)" value={ntitle}
+                   onChange={e=>setNtitle(e.target.value)} style={{marginBottom:8}}/>
+            <div style={{display:"flex",gap:8}}>
+              <button className="btn ghost sm" style={{flex:1}} onClick={()=>{setCreating(false);setNtitle("");}}>Annuler</button>
+              <button className="btn sm" style={{flex:2}} disabled={!ntitle.trim()||!profile} onClick={createInt}>Créer et dicter</button>
+            </div>
+          </div>
+        ) : (
+          <button className="btn" style={{width:"100%",padding:"13px"}} onClick={()=>setCreating(true)}>+ Nouvelle intervention</button>
+        )}
+
+        <button type="button" className="btn ghost" style={{width:"100%",marginTop:12}} onClick={onDeclare}>
+          🔴 Déclarer une panne (mode opérateur)
+        </button>
+      </div>
+    </Center>
+  );
+}
+
 /* ------------------------- PAGE PUBLIQUE QR ------------------------- */
 function QRPage({token}) {
   const [machine,setMachine] = useState(undefined);
@@ -215,9 +302,13 @@ function QRPage({token}) {
     r.onerror = () => setRec(false);
     recRef.current = r; r.start(); setRec(true);
   };
+  const [session,setSession] = useState(undefined);
+  const [techMode,setTechMode] = useState(true); // si connecté, on montre l'espace technicien d'abord
   useEffect(() => { (async () => {
     const {data,error} = await sb.rpc("qr_get_machine",{qr:token});
     setMachine(error || !data?.length ? null : data[0]);
+    const {data:s} = await sb.auth.getSession();
+    setSession(s.session || null);
   })(); }, []);
   const [photo,setPhoto] = useState(null);
   const send = async () => {
@@ -234,6 +325,8 @@ function QRPage({token}) {
   };
   if (machine === undefined) return <Center>Chargement…</Center>;
   if (machine === null) return <Center><div style={{font:"600 14px system-ui",color:"var(--alarm)"}}>QR code invalide ou machine supprimée.</div></Center>;
+  // Technicien connecté : espace intervention (dictée directe) au lieu de la déclaration opérateur
+  if (session && techMode) return <QRTechPanel machine={machine} session={session} onDeclare={()=>setTechMode(false)}/>;
   return (
     <Center>
       <div style={{background:"#fff",padding:28,width:420,maxWidth:"94vw",borderTop:"5px solid var(--accent)"}}>
@@ -243,6 +336,11 @@ function QRPage({token}) {
         <div style={{font:"600 11px system-ui",textTransform:"uppercase",letterSpacing:".1em",color:"var(--muted)",marginBottom:20}}>
           Déclaration de panne · {machine.org_name}
         </div>
+        {session && (
+          <button type="button" className="btn ghost" style={{width:"100%",marginBottom:16}} onClick={()=>setTechMode(true)}>
+            🔧 Espace technicien (intervenir / dicter)
+          </button>
+        )}
         <div style={{background:"var(--bg)",padding:"12px 16px",marginBottom:18}}>
           <div style={{font:"700 10px ui-monospace,monospace",color:"var(--muted)",textTransform:"uppercase"}}>{machine.code} · {machine.family}</div>
           <div style={{fontWeight:800,fontSize:17}}>{machine.name}</div>
