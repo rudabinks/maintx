@@ -124,6 +124,50 @@ const planHoursDue = (p,machines) => {
   return !!(p.freq_hours && m && +m.meter_hours >= +p.last_done_hours + +p.freq_hours);
 };
 const partLow = p => +p.min_qty>0 && +p.qty<=+p.min_qty;
+
+// Parse un CSV collé/importé → lignes {name,code,family,crit,year}
+function parseMachinesCSV(text) {
+  const lines = (text||"").split(/\r?\n/).filter(l=>l.trim());
+  if (!lines.length) return {rows:[]};
+  const cand = [";","\t",","];
+  const sep = cand.map(s=>({s,n:(lines[0].split(s).length-1)})).sort((a,b)=>b.n-a.n)[0].s;
+  const splitLine = l => {
+    const out=[]; let cur="", q=false;
+    for (let k=0;k<l.length;k++){
+      const c=l[k];
+      if (c==='"'){ if(q && l[k+1]==='"'){cur+='"';k++;} else q=!q; }
+      else if (c===sep && !q){ out.push(cur); cur=""; }
+      else cur+=c;
+    }
+    out.push(cur);
+    return out.map(s=>s.trim());
+  };
+  const norm = s => (s||"").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"").trim();
+  const header = splitLine(lines[0]).map(norm);
+  const idx = names => header.findIndex(h=>names.includes(h));
+  const iName=idx(["nom","name","machine","designation","libelle","intitule"]);
+  const iCode=idx(["code","reference","ref","n parc","n° parc","numero","matricule"]);
+  const iFam=idx(["famille","family","type","categorie"]);
+  const iCrit=idx(["criticite","criticality","crit","importance","niveau"]);
+  const iYear=idx(["annee","year","mise en service","date"]);
+  const hasHeader = iName>=0 || iCode>=0 || iFam>=0;
+  const critVal = v => {
+    const n=norm(v);
+    if (n.startsWith("critique")||n==="3") return 3;
+    if (n.startsWith("import")||n==="2") return 2;
+    if (n.startsWith("second")||n==="1") return 1;
+    const num=parseInt(v); return (num>=1&&num<=3)?num:2;
+  };
+  const data = hasHeader ? lines.slice(1) : lines;
+  const rows = data.map(l=>{
+    const c=splitLine(l), g=i=>i>=0?(c[i]||""):"";
+    return hasHeader
+      ? {name:g(iName)||c[0], code:g(iCode), family:g(iFam), crit:critVal(g(iCrit)), year:g(iYear)}
+      : {name:c[0]||"", code:c[1]||"", family:c[2]||"", crit:critVal(c[3]), year:c[4]||""};
+  }).filter(r=>r.name);
+  return {rows, sep, hasHeader};
+}
+
 const isoWeek = () => {
   const d = new Date();
   const t = new Date(Date.UTC(d.getFullYear(),d.getMonth(),d.getDate()));
@@ -532,6 +576,12 @@ function App({session}) {
   /* --- Actions --- */
   const db = {
     addMachine: async f => { await sb.from("machines").insert({org_id:orgId,name:f.name,code:f.code,family:f.family,criticality:f.crit,meta:{year:f.year,specs:{}}}); refresh(); setModal(null); },
+    importMachines: async rows => {
+      const payload = rows.map(r=>({org_id:orgId,name:r.name,code:r.code||null,family:r.family||null,criticality:r.crit||2,meta:{year:r.year||"",specs:{}}}));
+      const {error} = await sb.from("machines").insert(payload);
+      if (error) { alert("Erreur import : "+error.message); return false; }
+      refresh(); return true;
+    },
     updateMachineMeta: async (id,meta) => { await sb.from("machines").update({meta}).eq("id",id); refresh(); },
     addIntervention: async f => { await sb.from("interventions").insert({org_id:orgId,machine_id:f.machine,type:f.type,priority:f.prio,title:f.title,reported_by:profile.id}); refresh(); setModal(null); },
     setInterventionStatus: async (i,st) => {
@@ -828,6 +878,7 @@ function App({session}) {
       {modal==="org" && <OrgModal onClose={()=>setModal(null)} onSave={db.addOrg}/>}
       {modal==="preventif" && <PreventifModal machines={machines} onClose={()=>setModal(null)} onSave={db.addPreventif}/>}
       {modal==="part" && <PartModal onClose={()=>setModal(null)} onSave={db.addPart}/>}
+      {modal==="import" && <ImportModal onClose={()=>setModal(null)} onImport={db.importMachines}/>}
     </div>
   );
 }
@@ -959,7 +1010,13 @@ function Dashboard({machines,interventions,preventifs,org,kpi,machineName,db,set
 
 function Parc({machines,interventions,preventifs,setModal,setView}) {
   return <>
-    <Toolbar><H2>Parc machines ({machines.length})</H2><button className="btn" onClick={()=>setModal("machine")}>+ Ajouter</button></Toolbar>
+    <Toolbar>
+      <H2>Parc machines ({machines.length})</H2>
+      <div style={{display:"flex",gap:8}}>
+        <button className="btn ghost" onClick={()=>setModal("import")}>⤒ Importer CSV</button>
+        <button className="btn" onClick={()=>setModal("machine")}>+ Ajouter</button>
+      </div>
+    </Toolbar>
     <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(240px,1fr))",gap:12}}>
       {machines.map(m=>{
         const h = computeHealth(m, interventions.filter(i=>i.machine_id===m.id), preventifs.filter(p=>p.machine_id===m.id));
@@ -1450,6 +1507,55 @@ function Pieces({parts,setModal,db}) {
     ))}
     {parts.length===0 && <Empty>Aucune pièce en stock. Ajoutez vos consommables courants (roulements, courroies, filtres, fusibles…) avec le bouton ci-dessus.</Empty>}
   </>;
+}
+
+function ImportModal({onClose,onImport}) {
+  const [text,setText] = useState("");
+  const [busy,setBusy] = useState(false);
+  const fileRef = useRef();
+  const {rows} = useMemo(()=>parseMachinesCSV(text), [text]);
+  const loadFile = f => { const r=new FileReader(); r.onload=e=>setText(e.target.result); r.readAsText(f); };
+  const doImport = async () => {
+    setBusy(true);
+    const ok = await onImport(rows);
+    setBusy(false);
+    if (ok) onClose();
+  };
+  return (
+    <Modal title="Importer le parc (CSV / Excel)" onClose={onClose}>
+      <div style={{font:"500 12px system-ui",color:"var(--muted)",marginBottom:10}}>
+        Colle les cellules depuis Excel, ou choisis un fichier .csv. Colonnes reconnues :
+        <b> Nom, Code, Famille, Criticité, Année</b> (une ligne d'en-tête conseillée).
+        La criticité accepte 1/2/3 ou Secondaire/Importante/Critique.
+      </div>
+      <label className="btn ghost sm" style={{display:"inline-block",cursor:"pointer",marginBottom:8}}>
+        📄 Choisir un fichier CSV
+        <input type="file" accept=".csv,.txt,text/csv" ref={fileRef} style={{display:"none"}}
+               onChange={e=>{const f=e.target.files[0]; if(f) loadFile(f); e.target.value="";}}/>
+      </label>
+      <textarea rows={5} placeholder={"Nom;Code;Famille;Criticité;Année\nMori Seiki M300L;FR-08;Tour CN;Critique;2015\nHaas VF2;FR-09;Fraiseuse;2;2019"}
+                value={text} onChange={e=>setText(e.target.value)} style={{marginBottom:10,fontFamily:"ui-monospace,monospace",fontSize:12}}/>
+      {rows.length>0 ? (
+        <div style={{marginBottom:12}}>
+          <div style={{font:"700 12px system-ui",marginBottom:6}}>{rows.length} machine{rows.length>1?"s":""} détectée{rows.length>1?"s":""} :</div>
+          <div style={{maxHeight:180,overflow:"auto",border:"1px solid #E3E5E8"}}>
+            {rows.slice(0,50).map((r,k)=>(
+              <div key={k} style={{display:"flex",gap:8,padding:"5px 8px",borderBottom:"1px solid #EEE",font:"500 12px system-ui"}}>
+                <b style={{flex:1}}>{r.name}</b>
+                <span style={{color:"var(--muted)"}}>{r.code||"—"}</span>
+                <span style={{color:"var(--muted)"}}>{r.family||"—"}</span>
+                <span style={{color:CRIT[r.crit]?.color,fontWeight:700}}>{CRIT[r.crit]?.label}</span>
+              </div>
+            ))}
+          </div>
+          {rows.length>50 && <div style={{font:"500 11px system-ui",color:"var(--muted)",marginTop:4}}>… et {rows.length-50} autres</div>}
+        </div>
+      ) : text.trim() && <div style={{font:"600 12px system-ui",color:"var(--warn)",marginBottom:12}}>Aucune ligne exploitable — vérifie qu'il y a au moins une colonne Nom.</div>}
+      <button className="btn" disabled={!rows.length||busy} onClick={doImport} style={{width:"100%"}}>
+        {busy?"Import…":`Importer ${rows.length||""} machine${rows.length>1?"s":""}`}
+      </button>
+    </Modal>
+  );
 }
 
 function PartModal({onClose,onSave}) {

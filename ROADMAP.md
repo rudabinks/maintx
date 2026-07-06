@@ -103,7 +103,9 @@ plus. En cas de doute : moins de clics, moins de champs, plus gros boutons.
 - [ ] Export CSV/Excel sur toutes les listes (machines, interventions, pièces)
 - [ ] Sous-ensembles machine (ligne → machine → organe) : hiérarchie 3 niveaux mini
 - [ ] Mode hors-ligne avec synchronisation (zones d'atelier sans wifi)
-- [ ] Import CSV du parc machines
+- [x] Import CSV du parc machines (v0.13) : bouton "⤒ Importer CSV" dans le Parc,
+      coller depuis Excel ou fichier .csv, détection séparateur (;/,/tab) + en-têtes
+      accentués, criticité 1-3 ou texte, aperçu avant import, insertion en masse
 - [ ] Création des comptes utilisateurs clients depuis l'admin superadmin
 - [ ] Migration Vite + React multi-fichiers (même design/comportement)
 - [ ] Facturation Stripe
