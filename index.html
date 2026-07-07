@@ -337,6 +337,7 @@ function QRPage({token}) {
   const [rec,setRec] = useState(false);
   const recRef = useRef(null);
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  useEffect(() => () => { recRef.current?.stop(); recRef.current = null; }, []); // coupe le micro au démontage
   const dictate = () => {
     if (rec) { const r=recRef.current; recRef.current=null; setRec(false); r?.stop(); return; }
     const r = new SR();
@@ -643,8 +644,10 @@ function App({session}) {
     setInterventionStatus: async (i,st) => {
       const patch = {status:st};
       if (st!=="open" && !i.acked_at) patch.acked_at = new Date().toISOString();
-      if (st==="in_progress") patch.started_at = new Date().toISOString();
+      if (st==="in_progress" && !i.started_at) patch.started_at = new Date().toISOString();
       if (st==="done") patch.finished_at = new Date().toISOString();
+      else if (i.finished_at) patch.finished_at = null; // réouverture : on efface la date de clôture
+      if (st==="open") patch.started_at = null;         // remise en file d'attente
       await sb.from("interventions").update(patch).eq("id",i.id); refresh();
     },
     ackIntervention: async i => { await sb.from("interventions").update({acked_at:new Date().toISOString()}).eq("id",i.id); refresh(); },
@@ -687,8 +690,13 @@ function App({session}) {
     },
     usePart: async (i,part,qty) => {
       const cost = part.unit_cost ? Math.round(+part.unit_cost*qty*100)/100 : null;
-      await sb.from("parts").update({qty:Math.max(0,+part.qty-qty)}).eq("id",part.id);
-      await sb.from("interventions").update({parts_used:[...(i.parts_used||[]),{part_id:part.id,ref:part.ref,name:part.name,qty,cost}]}).eq("id",i.id);
+      // on relit stock et parts_used à jour pour éviter d'écraser une saisie concurrente
+      const [{data:freshPart},{data:freshInt}] = await Promise.all([
+        sb.from("parts").select("qty").eq("id",part.id).single(),
+        sb.from("interventions").select("parts_used").eq("id",i.id).single(),
+      ]);
+      await sb.from("parts").update({qty:Math.max(0,+(freshPart?.qty??part.qty)-qty)}).eq("id",part.id);
+      await sb.from("interventions").update({parts_used:[...(freshInt?.parts_used||i.parts_used||[]),{part_id:part.id,ref:part.ref,name:part.name,qty,cost}]}).eq("id",i.id);
       refresh();
     },
     setMeterHours: async (id,hours) => { await sb.from("machines").update({meter_hours:hours}).eq("id",id); refresh(); },
@@ -1043,7 +1051,7 @@ function WeeklyBrief({org,machines,interventions,preventifs,machineName,db}) {
       const p = await res.json();
       if (!res.ok || p.error) throw new Error(p.error||res.status);
       await db.saveWeeklyBrief(wk, p.text);
-    } catch(e) { setErr("Brief indisponible : "+(e.message||e)+" — vérifiez dans Edge Functions que la fonction s'appelle exactement « weekly-brief » et contient le bon code."); }
+    } catch(e) { setErr("Brief momentanément indisponible, réessayez dans un instant. ("+(e.message||e)+")"); }
     setBusy(false);
   };
   return (
@@ -1340,7 +1348,7 @@ function Mecano({machine,docs,db}) {
       const r = await db.askMecano(machine, question);
       setHist(h=>[{q:question, a:r.answer, sources:r.sources||[]}, ...h]);
     } catch(e) {
-      setHist(h=>[{q:question, a:"Erreur : "+(e.message||e)+" — la fonction mecano-ask est-elle déployée ?", sources:[]}, ...h]);
+      setHist(h=>[{q:question, a:"Service momentanément indisponible, réessayez. ("+(e.message||e)+")", sources:[]}, ...h]);
     }
     setBusy(false);
   };
@@ -1969,6 +1977,7 @@ function VoiceReport({i,onApplied,db}) {
   const [err,setErr] = useState(null);
   const recRef = useRef(null);
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  useEffect(() => () => { recRef.current?.stop(); recRef.current = null; }, []); // coupe le micro au démontage
   const start = () => {
     setErr(null);
     const r = new SR();
@@ -1999,7 +2008,7 @@ function VoiceReport({i,onApplied,db}) {
       if (!res.ok || p.error) throw new Error(p.error||res.status);
       setProp(p); setState("review");
     } catch(e) {
-      setErr("Analyse impossible. La fonction voice-report est-elle déployée avec sa clé API ?");
+      setErr("Analyse momentanément indisponible, réessayez dans un instant.");
       setState("idle");
     }
   };
