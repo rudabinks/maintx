@@ -25,9 +25,18 @@
   .navbadge{margin-left:auto;color:#fff;font:700 10px system-ui;padding:2px 7px;min-width:14px;text-align:center}
   .mobilebar{display:none}
   .bottomnav{display:none}
+  .desktoponly{display:flex}
   .main{padding:28px 36px}
+  .dtable{width:100%;border-collapse:collapse;font:500 13px system-ui;background:var(--panel)}
+  .dtable th{font:400 11px system-ui;color:var(--muted);text-align:left;padding:9px 12px;border-bottom:1px solid #E3E5E8}
+  .dtable td{padding:10px 12px;border-top:1px solid #E3E5E8}
+  .dtable tr.clk{cursor:pointer}
+  .dtable tr.clk:hover td{background:rgba(255,196,0,.07)}
   @media (max-width:760px){
     .layout{flex-direction:column}
+    .desktoponly{display:none !important}
+    .dtable{font-size:12px}
+    .dtable th,.dtable td{padding:8px 8px}
     .mobilebar{display:flex;align-items:center;gap:10px;position:sticky;top:0;z-index:70;background:var(--ink);padding:11px 14px}
     .sidebar{display:none !important}
     .main{padding:14px 12px 82px}
@@ -967,20 +976,7 @@ function App({session}) {
         {view.name==="parc" && <Parc machines={machines} interventions={interventions} preventifs={preventifs} setModal={setModal} setView={setView} isSuper={isSuper}/>}
         {view.name==="machine" && <MachineDetail machine={machines.find(m=>m.id===view.id)} docs={docs.filter(d=>d.machine_id===view.id)} interventions={interventions.filter(i=>i.machine_id===view.id)} parts={parts} plans={preventifs.filter(p=>p.machine_id===view.id)} db={db} back={()=>setView({name:"parc"})}/>}
         {view.name==="triage" && <Triage interventions={interventions} machineName={machineName} db={db}/>}
-        {view.name==="interventions" && (() => {
-          const openInts = interventions.filter(i=>i.status!=="done" && i.triage!=="pending");
-          const doneInts = interventions.filter(i=>i.status==="done");
-          return <>
-            <Toolbar><H2>En cours ({openInts.length})</H2><button className="btn" onClick={()=>setModal("intervention")}>+ Déclarer</button></Toolbar>
-            {openInts.map(i=><IRow key={i.id} i={i} machineName={machineName} db={db} full parts={parts}/>)}
-            {openInts.length===0 && <Empty>Rien en cours — tout roule ✓</Empty>}
-            {doneInts.length>0 && (
-              <Foldable title={`Terminées (${doneInts.length})`}>
-                {doneInts.map(i=><IRow key={i.id} i={i} machineName={machineName} db={db} full parts={parts}/>)}
-              </Foldable>
-            )}
-          </>;
-        })()}
+        {view.name==="interventions" && <Interventions interventions={interventions} machineName={machineName} db={db} parts={parts} setModal={setModal} setView={setView}/>}
         {view.name==="preventif" && <Preventif preventifs={preventifs} machines={machines} machineName={machineName} db={db} setModal={setModal}/>}
         {view.name==="pieces" && <Pieces parts={parts} setModal={setModal} db={db}/>}
         {view.name==="analyse" && <Analyse machines={machines} interventions={interventions} org={org} db={db} role={profile.role}/>}
@@ -2065,6 +2061,101 @@ function Kpi({label,value,alert}) {
     <div style={{background:"var(--panel)",padding:"18px 16px 14px",borderTop:`4px solid ${alert?"var(--alarm)":"var(--ink)"}`}}>
       <div style={{fontFamily:"var(--display)",fontSize:30,lineHeight:1}}>{value}</div>
       <div style={{font:"600 11px system-ui",textTransform:"uppercase",letterSpacing:".07em",color:"var(--muted)",marginTop:6}}>{label}</div>
+    </div>
+  );
+}
+
+const PILL = {
+  open:{bg:"rgba(214,59,47,.14)",fg:"#8A241B",label:"Ouverte"},
+  in_progress:{bg:"rgba(232,148,10,.16)",fg:"#8A5A06",label:"En cours"},
+  waiting_parts:{bg:"rgba(136,143,152,.18)",fg:"#4A4E55",label:"Attente pièces"},
+  done:{bg:"rgba(31,162,84,.14)",fg:"#0F6E56",label:"Clôturée"},
+};
+const StatusPill = ({st}) => {
+  const p = PILL[st] || {bg:"var(--bg)",fg:"var(--muted)",label:st};
+  return <span style={{background:p.bg,color:p.fg,padding:"2px 8px",borderRadius:9,font:"600 11px system-ui",whiteSpace:"nowrap"}}>{p.label}</span>;
+};
+const prioColor = p => p===3?"var(--alarm)":p===2?"var(--warn)":"var(--muted)";
+const prioLabel = p => p===3?"Critique":p===2?"Normale":"Basse";
+
+function Interventions({interventions,machineName,db,parts,setModal,setView}) {
+  const [mode,setMode] = useState("list"); // list | table | kanban
+  const open = interventions.filter(i=>i.status!=="done" && i.triage!=="pending");
+  const done = interventions.filter(i=>i.status==="done");
+  const seg = (v,txt) => (
+    <button onClick={()=>setMode(v)} style={{border:0,padding:"8px 12px",cursor:"pointer",font:"700 12px system-ui",
+      background:mode===v?"var(--ink)":"#fff",color:mode===v?"var(--accent)":"var(--ink)"}}>{txt}</button>
+  );
+  return <>
+    <Toolbar>
+      <H2>Interventions · {open.length} en cours</H2>
+      <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+        <div className="desktoponly" style={{border:"1.5px solid var(--ink)"}}>{seg("list","Liste")}{seg("table","Tableau")}{seg("kanban","Kanban")}</div>
+        <button className="btn" onClick={()=>setModal("intervention")}>+ Déclarer</button>
+      </div>
+    </Toolbar>
+    {mode==="kanban" ? <IntKanban list={open.concat(done)} machineName={machineName} setView={setView}/>
+     : mode==="table" ? <>
+         <IntTable rows={open} machineName={machineName} db={db} parts={parts}/>
+         {open.length===0 && <Empty>Rien en cours — tout roule ✓</Empty>}
+         {done.length>0 && <Foldable title={`Terminées (${done.length})`}><IntTable rows={done} machineName={machineName} db={db} parts={parts}/></Foldable>}
+       </>
+     : <>
+         {open.map(i=><IRow key={i.id} i={i} machineName={machineName} db={db} full parts={parts}/>)}
+         {open.length===0 && <Empty>Rien en cours — tout roule ✓</Empty>}
+         {done.length>0 && <Foldable title={`Terminées (${done.length})`}>{done.map(i=><IRow key={i.id} i={i} machineName={machineName} db={db} full parts={parts}/>)}</Foldable>}
+       </>}
+  </>;
+}
+
+function IntTable({rows,machineName,db,parts}) {
+  if (!rows.length) return null;
+  return (
+    <div style={{overflowX:"auto",marginBottom:10}}>
+      <table className="dtable">
+        <thead><tr><th>Machine</th><th>Intervention</th><th>Priorité</th><th>Cause</th><th>Statut</th><th>Date</th></tr></thead>
+        <tbody>{rows.map(i=><IntTableRow key={i.id} i={i} machineName={machineName} db={db} parts={parts}/>)}</tbody>
+      </table>
+    </div>
+  );
+}
+
+function IntTableRow({i,machineName,db,parts}) {
+  const [open,setOpen] = useState(false);
+  return <>
+    <tr className="clk" onClick={()=>setOpen(!open)}>
+      <td><span style={{display:"inline-block",width:7,height:7,borderRadius:2,background:prioColor(i.priority),marginRight:6}}/>{machineName(i.machine_id)||"—"}</td>
+      <td>{i.title}</td>
+      <td style={{color:prioColor(i.priority),fontWeight:700}}>{prioLabel(i.priority)}</td>
+      <td style={{color:"var(--muted)"}}>{i.failure_cause?FAILCAUSE[i.failure_cause]?.label:"—"}</td>
+      <td><StatusPill st={i.status}/></td>
+      <td style={{color:"var(--muted)",whiteSpace:"nowrap"}}>{i.reported_at?.slice(0,10)}</td>
+    </tr>
+    {open && <tr><td colSpan={6} style={{padding:0}}><InterventionDetail i={i} db={db} parts={parts}/></td></tr>}
+  </>;
+}
+
+function IntKanban({list,machineName,setView}) {
+  const cols = [["open","Nouvelles"],["in_progress","En cours"],["waiting_parts","Attente pièces"],["done","Terminé"]];
+  return (
+    <div style={{display:"grid",gridTemplateColumns:"repeat(4,minmax(0,1fr))",gap:10}}>
+      {cols.map(([st,label])=>{
+        let items = list.filter(i=>i.status===st);
+        if (st==="done") items = items.slice(0,20);
+        return (
+          <div key={st}>
+            <div style={{display:"flex",alignItems:"center",gap:6,font:"600 12px system-ui",color:"var(--muted)",marginBottom:8}}>{label}<span style={{marginLeft:"auto"}}>{items.length}</span></div>
+            {items.map(i=>(
+              <div key={i.id} onClick={()=>setView({name:"machine",id:i.machine_id})} style={{background:"var(--panel)",borderLeft:`3px solid ${prioColor(i.priority)}`,padding:"9px 10px",marginBottom:8,cursor:"pointer",opacity:st==="done"?.7:1}}>
+                <div style={{font:"700 10px ui-monospace,monospace",color:"var(--muted)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{machineName(i.machine_id)||"—"}</div>
+                <div style={{font:"600 12px system-ui",margin:"2px 0 4px"}}>{i.title}</div>
+                {i.failure_cause && <span style={{font:"600 10px system-ui",color:FAILCAUSE[i.failure_cause]?.color}}>{FAILCAUSE[i.failure_cause]?.label}</span>}
+              </div>
+            ))}
+            {items.length===0 && <div style={{font:"500 11px system-ui",color:"var(--muted)",padding:"4px 2px"}}>—</div>}
+          </div>
+        );
+      })}
     </div>
   );
 }
