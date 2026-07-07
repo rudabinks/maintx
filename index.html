@@ -24,15 +24,18 @@
   .navsec{font:700 10px system-ui;letter-spacing:.14em;text-transform:uppercase;color:#5E646E;padding:18px 16px 6px}
   .navbadge{margin-left:auto;color:#fff;font:700 10px system-ui;padding:2px 7px;min-width:14px;text-align:center}
   .mobilebar{display:none}
-  .sbclose{display:none}
+  .bottomnav{display:none}
   .main{padding:28px 36px}
   @media (max-width:760px){
     .layout{flex-direction:column}
-    .mobilebar{display:flex;align-items:center;gap:10px;position:sticky;top:0;z-index:70;background:var(--ink);padding:10px 14px}
+    .mobilebar{display:flex;align-items:center;gap:10px;position:sticky;top:0;z-index:70;background:var(--ink);padding:11px 14px}
     .sidebar{display:none !important}
-    .sidebar.open{display:flex !important;position:fixed !important;inset:0 !important;width:100% !important;height:100vh !important;z-index:80}
-    .sbclose{display:block}
-    .main{padding:14px 12px}
+    .main{padding:14px 12px 82px}
+    .bottomnav{display:flex;position:fixed;left:0;right:0;bottom:0;z-index:75;background:var(--ink);border-top:1px solid #2c2f36}
+    .bottomnav .btab{flex:1;background:transparent;border:0;color:#AEB2B9;padding:8px 2px 9px;font:600 10px system-ui;display:flex;flex-direction:column;align-items:center;gap:3px;cursor:pointer;position:relative}
+    .bottomnav .btab.active{color:var(--accent)}
+    .bottomnav .bico{font-size:20px;line-height:1}
+    .bottomnav .bdot{position:absolute;top:5px;left:calc(50% + 5px);width:9px;height:9px;background:var(--alarm);border-radius:50%}
   }
   .btn{background:var(--ink);color:var(--accent);border:0;padding:10px 18px;font:700 13px system-ui;text-transform:uppercase;letter-spacing:.05em;cursor:pointer}
   .btn:hover{background:#000}.btn:disabled{opacity:.4;cursor:default}
@@ -884,20 +887,34 @@ function App({session}) {
   );
   if (!profile || !orgId) return <Center>Chargement…</Center>;
 
-  const NAV = [
-    {sec:"Pilotage", items:[["dashboard","Tableau de bord","▦",kpi.pannes,"var(--alarm)"]]},
-    {sec:"Maintenance", items:[
-      ["triage","À trier","📥",kpi.pending,"var(--accent)"],
-      ["interventions","Interventions","🔧",kpi.ouvertes,"#3B4048"],
-      ["preventif","Préventif","🗓",kpi.retard,"var(--alarm)"],
-    ]},
-    {sec:"Parc", items:[
-      ["parc","Machines","⚙️"],
-      ["pieces","Pièces détachées","🔩",kpi.lowStock,"var(--warn)"],
-    ]},
-    {sec:"Analyse", items:[["analyse","Analyse","📈"]]},
-    ...(isSuper?[{sec:"Superadmin", items:[["admin","Clients & accès","👥",pendingProfiles.length,"var(--accent)"]]}]:[]),
+  const ITEM = {
+    dashboard:{label:"Accueil",ico:"🏠",badge:kpi.pannes,color:"var(--alarm)"},
+    interventions:{label:"Interventions",ico:"🔧",badge:kpi.ouvertes,color:"#3B4048"},
+    parc:{label:"Machines",ico:"⚙️"},
+    preventif:{label:"Préventif",ico:"🗓",badge:kpi.retard,color:"var(--alarm)"},
+    triage:{label:"À trier",ico:"📥",badge:kpi.pending,color:"var(--accent)"},
+    pieces:{label:"Pièces détachées",ico:"🔩",badge:kpi.lowStock,color:"var(--warn)"},
+    analyse:{label:"Analyse",ico:"📈"},
+    admin:{label:"Clients & accès",ico:"👥",badge:pendingProfiles.length,color:"var(--accent)"},
+  };
+  const PRIMARY = ["dashboard","interventions","parc","preventif"];       // barre du bas mobile
+  const SECONDARY = ["triage","pieces","analyse",...(isSuper?["admin"]:[])]; // menu "Plus"
+  const SIDEBAR = [
+    ["Suivi",["dashboard","triage"]],
+    ["Maintenance",["interventions","preventif"]],
+    ["Parc & stock",["parc","pieces"]],
+    ["Pilotage",["analyse"]],
+    ...(isSuper?[["Superadmin",["admin"]]]:[]),
   ];
+  const NavBtn = k => {
+    const it = ITEM[k];
+    return (
+      <button key={k} className={"nav"+(view.name===k?" active":"")} onClick={()=>{setView({name:k});setNavOpen(false);}}>
+        <span className="ico">{it.ico}</span>{it.label}
+        {it.badge>0 && <span className="navbadge" style={{background:it.color,color:it.color==="var(--accent)"?"var(--ink)":"#fff"}}>{it.badge}</span>}
+      </button>
+    );
+  };
 
   return (
     <div className="layout" style={{display:"flex",minHeight:"100vh"}}>
@@ -905,27 +922,20 @@ function App({session}) {
         <div style={{fontFamily:"var(--display)",fontSize:17,color:"#fff",flex:1}}>
           <span style={{color:"var(--accent)",marginRight:5}}>▮▮</span>MAINT<span style={{color:"var(--accent)"}}>X</span>
         </div>
-        {kpi.pannes>0 && <span className="navbadge" style={{background:"var(--alarm)"}}>{kpi.pannes} panne{kpi.pannes>1?"s":""}</span>}
-        <button className="btn sm" onClick={()=>setNavOpen(true)}>☰ Menu</button>
+        <span style={{color:"#AEB2B9",font:"600 12px system-ui",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:170}}>{org?.name}</span>
       </div>
-      <aside className={"sidebar"+(navOpen?" open":"")} style={{width:220,background:"var(--ink)",display:"flex",flexDirection:"column",padding:"20px 0",position:"sticky",top:0,height:"100vh",overflowY:"auto",flexShrink:0}}>
-        <button className="btn ghost sm sbclose" style={{position:"absolute",top:16,right:14,color:"#C9CCD1",borderColor:"#444"}} onClick={()=>setNavOpen(false)}>✕ Fermer</button>
+      <aside className="sidebar" style={{width:220,background:"var(--ink)",display:"flex",flexDirection:"column",padding:"20px 0",position:"sticky",top:0,height:"100vh",overflowY:"auto",flexShrink:0}}>
         <div style={{fontFamily:"var(--display)",fontSize:20,color:"#fff",padding:"0 16px 10px"}}>
           <span style={{color:"var(--accent)",marginRight:6}}>▮▮</span>MAINT<span style={{color:"var(--accent)"}}>X</span>
         </div>
-        {NAV.map(sec=>(
-          <div key={sec.sec}>
-            <div className="navsec">{sec.sec}</div>
-            {sec.items.map(([k,label,ico,badge,badgeColor])=>(
-              <button key={k} className={"nav"+(view.name===k?" active":"")} onClick={()=>{setView({name:k});setNavOpen(false);}}>
-                <span className="ico">{ico}</span>{label}
-                {badge>0 && <span className="navbadge" style={{background:badgeColor,color:badgeColor==="var(--accent)"?"var(--ink)":"#fff"}}>{badge}</span>}
-              </button>
-            ))}
+        {SIDEBAR.map(([sec,keys])=>(
+          <div key={sec}>
+            <div className="navsec">{sec}</div>
+            {keys.map(k=>NavBtn(k))}
           </div>
         ))}
         <div style={{marginTop:"auto",padding:12,font:"500 11px system-ui",color:"var(--muted)"}}>
-          {profile.full_name}<br/>{profile.role}
+          {profile.full_name}<br/>{ROLES[profile.role]?.label || profile.role}
           <button className="btn ghost" style={{width:"100%",marginTop:8,color:"#C9CCD1",borderColor:"#444"}} onClick={()=>sb.auth.signOut()}>Déconnexion</button>
         </div>
       </aside>
@@ -991,6 +1001,46 @@ function App({session}) {
       {modal==="preventif" && <PreventifModal machines={machines} onClose={()=>setModal(null)} onSave={db.addPreventif}/>}
       {modal==="part" && <PartModal onClose={()=>setModal(null)} onSave={db.addPart}/>}
       {modal==="import" && <ImportModal onClose={()=>setModal(null)} onImport={db.importMachines}/>}
+
+      {/* Barre d'onglets du bas (mobile) */}
+      <nav className="bottomnav">
+        {PRIMARY.map(k=>{
+          const it = ITEM[k];
+          return (
+            <button key={k} className={"btab"+(view.name===k?" active":"")} onClick={()=>setView({name:k})}>
+              {it.badge>0 && <span className="bdot"/>}
+              <span className="bico">{it.ico}</span>{it.label}
+            </button>
+          );
+        })}
+        <button className={"btab"+(SECONDARY.includes(view.name)||navOpen?" active":"")} onClick={()=>setNavOpen(true)}>
+          {SECONDARY.some(k=>ITEM[k].badge>0) && <span className="bdot"/>}
+          <span className="bico">⋯</span>Plus
+        </button>
+      </nav>
+
+      {/* Feuille "Plus" (mobile) */}
+      {navOpen && (
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.4)",zIndex:90}} onClick={()=>setNavOpen(false)}>
+          <div style={{position:"absolute",bottom:0,left:0,right:0,background:"#fff",padding:"16px 16px 22px"}} onClick={e=>e.stopPropagation()}>
+            <div style={{font:"800 13px system-ui",textTransform:"uppercase",letterSpacing:".08em",color:"var(--muted)",marginBottom:12}}>Plus</div>
+            {SECONDARY.map(k=>{
+              const it = ITEM[k];
+              return (
+                <button key={k} style={{display:"flex",alignItems:"center",gap:12,width:"100%",background:view.name===k?"var(--bg)":"transparent",border:0,padding:"13px 10px",font:"700 14px system-ui",color:"var(--ink)",cursor:"pointer",textAlign:"left"}}
+                        onClick={()=>{setView({name:k});setNavOpen(false);}}>
+                  <span style={{fontSize:18}}>{it.ico}</span>{it.label}
+                  {it.badge>0 && <span className="navbadge" style={{background:it.color||"var(--alarm)",color:it.color==="var(--accent)"?"var(--ink)":"#fff"}}>{it.badge}</span>}
+                </button>
+              );
+            })}
+            <div style={{borderTop:"1px solid #E3E5E8",margin:"12px 0 0",paddingTop:12,font:"500 12px system-ui",color:"var(--muted)"}}>
+              {profile.full_name} · {ROLES[profile.role]?.label || profile.role}
+            </div>
+            <button className="btn" style={{width:"100%",marginTop:10}} onClick={()=>sb.auth.signOut()}>Déconnexion</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1100,6 +1150,15 @@ function ChronicAlert({chroniques}) {
 function Dashboard({machines,interventions,preventifs,org,kpi,machineName,db,setView}) {
   const degOver = machines.filter(m=>m.status==="degraded" && m.degraded_deadline && m.degraded_deadline<today());
   return <>
+    {kpi.pending>0 && (
+      <div style={{background:"var(--accent)",padding:"12px 16px",marginBottom:16,display:"flex",alignItems:"center",gap:12,flexWrap:"wrap",cursor:"pointer"}} onClick={()=>setView({name:"triage"})}>
+        <span style={{fontSize:20}}>📥</span>
+        <span style={{flex:1,font:"700 14px system-ui",color:"var(--ink)"}}>
+          {kpi.pending} nouvelle{kpi.pending>1?"s":""} demande{kpi.pending>1?"s":""} d'intervention à traiter
+        </span>
+        <span className="btn sm">Trier →</span>
+      </div>
+    )}
     <WeeklyBrief org={org} machines={machines} interventions={interventions} preventifs={preventifs} machineName={machineName} db={db}/>
     <div style={{display:"flex",gap:4,flexWrap:"wrap",background:"var(--panel)",padding:"14px 16px 10px",borderBottom:"3px solid var(--accent)",marginBottom:20}}>
       {machines.length===0 && <span style={{font:"500 13px system-ui",color:"var(--muted)"}}>Aucune machine — ajoutez votre parc dans « Parc machines ».</span>}
@@ -1659,7 +1718,7 @@ function TriageCard({i,others,machineName,db}) {
         {i.description && <div style={{font:"500 12px system-ui",marginTop:4}}>{i.description}</div>}
       </div>
       <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
-        <button className="btn sm" onClick={()=>db.triage(i,"accepted")}>✅ Accepter</button>
+        <button className="btn sm" onClick={()=>db.triage(i,"accepted")}>✅ Prendre en charge</button>
         {others.length>0 && (
           <Dropdown width={190} placeholder="🔗 Doublon de…" value={null}
                     options={others.map(o=>({value:o.id,label:o.title.length>26?o.title.slice(0,26)+"…":o.title,sub:o.reported_at?.slice(0,10)}))}
