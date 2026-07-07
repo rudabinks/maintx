@@ -11,8 +11,16 @@ maintenance sur Excel/papier. Business model :
   — PAS encore développé, mais la table machine_events existe déjà pour ça.
 
 ## Stack
-- Frontend : actuellement UN SEUL fichier `index.html` (React 18 UMD + Babel standalone
-  + supabase-js UMD via CDN). Migration prévue vers Vite + React multi-fichiers.
+- Frontend : React 18 UMD + Babel standalone + supabase-js UMD via CDN, SANS build tool
+  (pas de Node requis). Le code est découpé dans `src/*.jsx` (source de vérité) et
+  RÉASSEMBLÉ dans `index.html` (fichier déployé sur GitHub Pages) par `build.sh`.
+  ⚠️ TOUJOURS éditer les fichiers `src/`, jamais `index.html` directement, puis lancer
+  `bash build.sh` avant de commit. Fichiers (dans l'ordre) : _head.html (head+CSS),
+  10-config (config Supabase, constantes, helpers), 20-public (Root/QR/Login),
+  30-app (App + db + nav), 40-dashboard, 50-machines, 60-preventif, 70-admin-triage,
+  80-pieces-analyse, 85-ui (Dropdown/Kpi/PILL…), 90-interventions, 95-modals, _tail.html.
+  Tout est dans un seul scope global (concaténation) → aucun import/export.
+  Migration Vite "vraie" prévue plus tard (nécessitera Node).
 - Backend : Supabase (Postgres + Auth + Storage + RLS)
   - URL : https://krfrzuxdymgzttkdcaab.supabase.co
   - Clé publishable (publique, OK dans le code client) :
