@@ -103,6 +103,10 @@ plus. En cas de doute : moins de clics, moins de champs, plus gros boutons.
 - [ ] Palette de commandes Ctrl+K + recherche universelle mobile
 - [ ] Bibliothèque de gammes par famille de machine (pré-remplie par Lilian à chaque
       setup → setups de plus en plus rapides)
+- [ ] Nom définitif du produit + logo (MaintX = nom de travail) — brainstormer plus tard
+- [ ] Refonte visuelle "GMAO pro industrielle" (en cours) : mur de machines (C),
+      interventions tableau dense + bascule liste/tableau/kanban (A+B), Accueil KPI +
+      tableau dense ; liste simple sur mobile. Maquettes validées avec Lilian
 - [ ] Améliorations du rapport hebdo PDF (mise en page, graphiques, envoi par mail)
 - [ ] Annotation des photos (flèches, cercles, texte — canvas simple) : feature la
       plus citée en positif par les techniciens
