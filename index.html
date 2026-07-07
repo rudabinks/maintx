@@ -23,6 +23,11 @@
   .nav .ico{width:18px;text-align:center;flex:none}
   .navsec{font:700 10px system-ui;letter-spacing:.14em;text-transform:uppercase;color:#5E646E;padding:18px 16px 6px}
   .navbadge{margin-left:auto;color:#fff;font:700 10px system-ui;padding:2px 7px;min-width:14px;text-align:center}
+  .topnav{display:flex;align-items:center;gap:3px;background:var(--ink);padding:0 14px;height:52px;position:sticky;top:0;z-index:70}
+  .tnav{display:flex;align-items:center;gap:7px;background:transparent;border:0;color:#C9CCD1;font:600 13px system-ui;padding:8px 11px;cursor:pointer;white-space:nowrap;transition:background .12s,color .12s}
+  .tnav:hover{color:#fff;background:rgba(255,255,255,.08)}
+  .tnav.active{color:var(--ink);background:var(--accent)}
+  .tbadge{font:700 10px system-ui;padding:1px 6px;min-width:12px;text-align:center;border-radius:8px}
   .mobilebar{display:none}
   .bottomnav{display:none}
   .desktoponly{display:flex}
@@ -35,6 +40,7 @@
   @media (max-width:760px){
     .layout{flex-direction:column}
     .desktoponly{display:none !important}
+    .topnav{display:none}
     .dtable{font-size:12px}
     .dtable th,.dtable td{padding:8px 8px}
     .mobilebar{display:flex;align-items:center;gap:10px;position:sticky;top:0;z-index:70;background:var(--ink);padding:11px 14px}
@@ -929,47 +935,46 @@ function App({session}) {
     );
   };
 
+  const TOPNAV = ["dashboard","triage","interventions","preventif","parc","pieces","analyse",...(isSuper?["admin"]:[])];
   return (
-    <div className="layout" style={{display:"flex",minHeight:"100vh"}}>
+    <div className="layout" style={{display:"flex",flexDirection:"column",minHeight:"100vh"}}>
       <div className="mobilebar">
         <div style={{fontFamily:"var(--display)",fontSize:17,color:"#fff",flex:1}}>
           <span style={{color:"var(--accent)",marginRight:5}}>▮▮</span>MAINT<span style={{color:"var(--accent)"}}>X</span>
         </div>
         <span style={{color:"#AEB2B9",font:"600 12px system-ui",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:170}}>{org?.name}</span>
       </div>
-      <aside className="sidebar" style={{width:220,background:"var(--ink)",display:"flex",flexDirection:"column",padding:"20px 0",position:"sticky",top:0,height:"100vh",overflowY:"auto",flexShrink:0}}>
-        <div style={{fontFamily:"var(--display)",fontSize:20,color:"#fff",padding:"0 16px 10px"}}>
-          <span style={{color:"var(--accent)",marginRight:6}}>▮▮</span>MAINT<span style={{color:"var(--accent)"}}>X</span>
+      <header className="topnav">
+        <div style={{fontFamily:"var(--display)",fontSize:18,color:"#fff",marginRight:8}}>
+          <span style={{color:"var(--accent)",marginRight:5}}>▮▮</span>MAINT<span style={{color:"var(--accent)"}}>X</span>
         </div>
-        {SIDEBAR.map(([sec,keys])=>(
-          <div key={sec}>
-            <div className="navsec">{sec}</div>
-            {keys.map(k=>NavBtn(k))}
-          </div>
-        ))}
-        <div style={{marginTop:"auto",padding:12,font:"500 11px system-ui",color:"var(--muted)"}}>
-          {profile.full_name}<br/>{ROLES[profile.role]?.label || profile.role}
-          <button className="btn ghost" style={{width:"100%",marginTop:8,color:"#C9CCD1",borderColor:"#444"}} onClick={()=>sb.auth.signOut()}>Déconnexion</button>
-        </div>
-      </aside>
+        <nav style={{display:"flex",gap:2,flex:1,overflowX:"auto"}}>
+          {TOPNAV.map(k=>{
+            const it = ITEM[k];
+            return (
+              <button key={k} className={"tnav"+(view.name===k?" active":"")} onClick={()=>setView({name:k})}>
+                <span>{it.ico}</span>{it.label}
+                {it.badge>0 && <span className="tbadge" style={{background:it.color,color:it.color==="var(--accent)"?"var(--ink)":"#fff"}}>{it.badge}</span>}
+              </button>
+            );
+          })}
+        </nav>
+        {isSuper && orgs.length>1 && (
+          <Dropdown width={200} align="right" value={orgId}
+                    options={orgs.map(o=>({value:o.id,label:o.name,sub:"plan "+(o.plan||"standard")}))}
+                    onChange={id=>{setOrgId(id);setView({name:"dashboard"});}}/>
+        )}
+        <span style={{color:"#AEB2B9",font:"600 12px system-ui",marginLeft:10,whiteSpace:"nowrap"}}>{profile.full_name}</span>
+        <button className="btn ghost sm" style={{marginLeft:8,color:"#C9CCD1",borderColor:"#444"}} onClick={()=>sb.auth.signOut()}>Quitter</button>
+      </header>
 
       <main className="main" style={{flex:1,minWidth:0}}>
-       <div style={{maxWidth:1100,margin:"0 auto"}}>
-        <header style={{display:"flex",justifyContent:"space-between",alignItems:"flex-end",marginBottom:24,flexWrap:"wrap",gap:12}}>
-          <div>
-            <div style={{font:"700 10px system-ui",textTransform:"uppercase",letterSpacing:".12em",color:"var(--muted)",marginBottom:4}}>
-              Plan {org?.plan==="connect"?"Connect · machines connectées":"Standard"}
-            </div>
-            <h1 style={{fontFamily:"var(--display)",fontSize:26,margin:0,textTransform:"uppercase"}}>{org?.name}</h1>
+       <div style={{maxWidth:1180,margin:"0 auto"}}>
+        <header style={{marginBottom:20}}>
+          <div style={{font:"700 10px system-ui",textTransform:"uppercase",letterSpacing:".12em",color:"var(--muted)",marginBottom:4}}>
+            Plan {org?.plan==="connect"?"Connect · machines connectées":"Standard"}
           </div>
-          {isSuper && orgs.length>1 && (
-            <div>
-              <div style={{font:"700 10px system-ui",textTransform:"uppercase",letterSpacing:".12em",color:"var(--muted)",marginBottom:4,textAlign:"right"}}>Client</div>
-              <Dropdown width={230} align="right" value={orgId}
-                        options={orgs.map(o=>({value:o.id,label:o.name,sub:"plan "+(o.plan||"standard")}))}
-                        onChange={id=>{setOrgId(id);setView({name:"dashboard"});}}/>
-            </div>
-          )}
+          <h1 style={{fontFamily:"var(--display)",fontSize:26,margin:0,textTransform:"uppercase"}}>{org?.name}</h1>
         </header>
 
         {view.name==="dashboard" && <Dashboard machines={machines} interventions={interventions} preventifs={preventifs} parts={parts} org={org} kpi={kpi} machineName={machineName} db={db} setView={setView}/>}
@@ -2094,7 +2099,8 @@ const prioColor = p => p===3?"var(--alarm)":p===2?"var(--warn)":"var(--muted)";
 const prioLabel = p => p===3?"Critique":p===2?"Normale":"Basse";
 
 function Interventions({interventions,machineName,db,parts,setModal,setView}) {
-  const [mode,setMode] = useState("list"); // list | table | kanban
+  const [mode,setModeRaw] = useState(()=>localStorage.getItem("mx_int_view")||"list"); // list | table | kanban
+  const setMode = v => { localStorage.setItem("mx_int_view",v); setModeRaw(v); };
   const open = interventions.filter(i=>i.status!=="done" && i.triage!=="pending");
   const done = interventions.filter(i=>i.status==="done");
   const seg = (v,txt) => (
@@ -2161,10 +2167,10 @@ function IntKanban({list,machineName,setView}) {
           <div key={st}>
             <div style={{display:"flex",alignItems:"center",gap:6,font:"600 12px system-ui",color:"var(--muted)",marginBottom:8}}>{label}<span style={{marginLeft:"auto"}}>{items.length}</span></div>
             {items.map(i=>(
-              <div key={i.id} onClick={()=>setView({name:"machine",id:i.machine_id})} style={{background:"var(--panel)",borderLeft:`3px solid ${prioColor(i.priority)}`,padding:"9px 10px",marginBottom:8,cursor:"pointer",opacity:st==="done"?.7:1}}>
+              <div key={i.id} onClick={()=>setView({name:"machine",id:i.machine_id})} style={{background:"#fff",borderRadius:8,borderLeft:`3px solid ${prioColor(i.priority)}`,padding:"10px 11px",marginBottom:8,cursor:"pointer",opacity:st==="done"?.7:1,border:"0.5px solid #E3E5E8",borderLeftWidth:3}}>
                 <div style={{font:"700 10px ui-monospace,monospace",color:"var(--muted)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{machineName(i.machine_id)||"—"}</div>
-                <div style={{font:"600 12px system-ui",margin:"2px 0 4px"}}>{i.title}</div>
-                {i.failure_cause && <span style={{font:"600 10px system-ui",color:FAILCAUSE[i.failure_cause]?.color}}>{FAILCAUSE[i.failure_cause]?.label}</span>}
+                <div style={{font:"600 12px system-ui",margin:"3px 0 5px"}}>{i.title}</div>
+                {i.failure_cause && <span style={{font:"600 10px system-ui",padding:"1px 7px",borderRadius:8,background:PILL[i.status]?.bg||"var(--bg)",color:FAILCAUSE[i.failure_cause]?.color}}>{FAILCAUSE[i.failure_cause]?.label}</span>}
               </div>
             ))}
             {items.length===0 && <div style={{font:"500 11px system-ui",color:"var(--muted)",padding:"4px 2px"}}>—</div>}
