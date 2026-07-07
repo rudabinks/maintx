@@ -758,8 +758,12 @@ function App({session}) {
       setOrgs(o||[]); setModal(null);
     },
     addPreventif: async f => {
-      const m = machines.find(x=>x.id===f.machine);
-      await sb.from("preventive_plans").insert({org_id:orgId,machine_id:f.machine,title:f.title,freq_days:f.freq,next_due:f.next,checklist:(f.checklist||[]).map(s=>({step:s})),freq_hours:f.freqH?+f.freqH:null,last_done_hours:m?+m.meter_hours:0});
+      const ids = f.machines?.length ? f.machines : (f.machine ? [f.machine] : []);
+      const rows = ids.map(mid=>{
+        const m = machines.find(x=>x.id===mid);
+        return {org_id:orgId,machine_id:mid,title:f.title,freq_days:f.freq,next_due:f.next,checklist:(f.checklist||[]).map(s=>({step:s})),freq_hours:f.freqH?+f.freqH:null,last_done_hours:m?+m.meter_hours:0};
+      });
+      if (rows.length) await sb.from("preventive_plans").insert(rows);
       refresh(); setModal(null);
     },
     donePreventif: async (p,steps) => {
@@ -1568,22 +1572,35 @@ function QRTab({machine}) {
 /* ------------------------- PRÉVENTIF ------------------------- */
 const planIsDue = (p,machines) => p.next_due<=today() || planHoursDue(p,machines);
 
+const planDetail = p => `${+p.freq_days>0?`tous les ${p.freq_days} j`:"une seule fois"}${p.freq_hours?` ou ${+p.freq_hours} h`:""}${p.checklist?.length?` · ☑ ${p.checklist.length}`:""}`;
+
 function Preventif({preventifs,machines,machineName,db,setModal}) {
   const [checkFor,setCheckFor] = useState(null);
+  const [groupBy,setGroupBy] = useState("task"); // task | machine
   const active = preventifs.filter(p=>p.active!==false);
-  // Regroupement par type de tâche (titre) pour agir sur plusieurs machines d'un coup
   const groups = {};
   active.forEach(p=>{
-    const key = (p.title||"").trim().toLowerCase();
-    (groups[key] = groups[key] || {title:p.title, plans:[]}).plans.push(p);
+    const key = groupBy==="task" ? (p.title||"").trim().toLowerCase() : p.machine_id;
+    const label = groupBy==="task" ? p.title : machineName(p.machine_id);
+    (groups[key] = groups[key] || {label, plans:[]}).plans.push(p);
   });
   const groupList = Object.values(groups)
     .map(g=>({...g, due:g.plans.filter(p=>planIsDue(p,machines)).length}))
-    .sort((a,b)=> b.due-a.due || a.title.localeCompare(b.title));
+    .sort((a,b)=> b.due-a.due || (a.label||"").localeCompare(b.label||""));
+  const segBtn = (val,txt) => (
+    <button onClick={()=>setGroupBy(val)} style={{border:0,padding:"8px 12px",cursor:"pointer",font:"700 12px system-ui",
+      background:groupBy===val?"var(--ink)":"#fff",color:groupBy===val?"var(--accent)":"var(--ink)"}}>{txt}</button>
+  );
   return <>
-    <Toolbar><H2>Préventif</H2><button className="btn" onClick={()=>setModal("preventif")}>+ Nouvelle gamme</button></Toolbar>
+    <Toolbar>
+      <H2>Préventif</H2>
+      <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+        <div style={{display:"flex",border:"1.5px solid var(--ink)"}}>{segBtn("task","Par tâche")}{segBtn("machine","Par machine")}</div>
+        <button className="btn" onClick={()=>setModal("preventif")}>+ Nouvelle gamme</button>
+      </div>
+    </Toolbar>
     {groupList.map(g=>(
-      <PreventifGroup key={g.title} g={g} machines={machines} machineName={machineName} db={db} onCheck={setCheckFor}/>
+      <PreventifGroup key={g.label} g={g} groupBy={groupBy} machines={machines} machineName={machineName} db={db} onCheck={setCheckFor}/>
     ))}
     {active.length===0 && <Empty>Aucune gamme préventive — créez la première avec le bouton ci-dessus.</Empty>}
     {checkFor && <ChecklistModal plan={checkFor} onClose={()=>setCheckFor(null)}
@@ -1591,18 +1608,13 @@ function Preventif({preventifs,machines,machineName,db,setModal}) {
   </>;
 }
 
-function PlanRow({p,machines,machineName,db,onCheck,grouped}) {
+function PlanRow({p,machines,db,onCheck,bold,sub,indent}) {
   const late = planIsDue(p,machines);
   const nbSteps = p.checklist?.length || 0;
-  const m = machines.find(x=>x.id===p.machine_id);
-  const title = grouped ? machineName(p.machine_id) : p.title;
-  const sub = grouped
-    ? `${+p.freq_days>0?`tous les ${p.freq_days} j`:"une seule fois"}${p.freq_hours?` ou ${+p.freq_hours} h`:""}${nbSteps>0?` · ☑ ${nbSteps}`:""}`
-    : `${machineName(p.machine_id)} · ${+p.freq_days>0?`tous les ${p.freq_days} j`:"une seule fois"}${p.freq_hours?` ou ${+p.freq_hours} h`:""}${nbSteps>0?` · ☑ ${nbSteps} points`:""}`;
   return (
-    <Row style={{borderLeft:`4px solid ${late?"var(--alarm)":"var(--run)"}`,...(grouped?{marginLeft:12,marginRight:0}:{})}}>
+    <Row style={{borderLeft:`4px solid ${late?"var(--alarm)":"var(--run)"}`,...(indent?{marginLeft:12}:{})}}>
       <div style={{flex:1}}>
-        <b>{title||"—"}</b>
+        <b>{bold||"—"}</b>
         <div style={{font:"500 12px system-ui",color:"var(--muted)",marginTop:2}}>{sub}</div>
       </div>
       <div style={{textAlign:"right"}}>
@@ -1614,23 +1626,28 @@ function PlanRow({p,machines,machineName,db,onCheck,grouped}) {
   );
 }
 
-function PreventifGroup({g,machines,machineName,db,onCheck}) {
+function PreventifGroup({g,groupBy,machines,machineName,db,onCheck}) {
   const [open,setOpen] = useState(false);
-  if (g.plans.length===1)
-    return <PlanRow p={g.plans[0]} machines={machines} machineName={machineName} db={db} onCheck={onCheck}/>;
+  if (g.plans.length===1) {
+    const p = g.plans[0];
+    return <PlanRow p={p} machines={machines} db={db} onCheck={onCheck}
+                    bold={p.title} sub={`${machineName(p.machine_id)} · ${planDetail(p)}`}/>;
+  }
+  const unit = groupBy==="task" ? "machines" : "tâches";
   return (
     <div style={{border:`1px solid ${g.due>0?"var(--alarm)":"#E3E5E8"}`,marginBottom:10}}>
       <div style={{display:"flex",alignItems:"center",gap:10,padding:"12px 16px",background:"var(--panel)",flexWrap:"wrap"}}>
         <div style={{flex:1,cursor:"pointer",minWidth:180}} onClick={()=>setOpen(!open)}>
-          <b>{open?"▾":"▸"} {g.title}</b>
+          <b>{open?"▾":"▸"} {g.label}</b>
           <div style={{font:"500 12px system-ui",color:"var(--muted)",marginTop:2}}>
-            {g.plans.length} machines{g.due>0?` · ${g.due} à faire`:" · à jour"}
+            {g.plans.length} {unit}{g.due>0?` · ${g.due} à faire`:" · à jour"}
           </div>
         </div>
         <button className="btn sm" onClick={()=>db.donePreventifBatch(g.plans)}>✓ Tout valider ({g.plans.length})</button>
       </div>
       {open && g.plans.map(p=>(
-        <PlanRow key={p.id} p={p} machines={machines} machineName={machineName} db={db} onCheck={onCheck} grouped/>
+        <PlanRow key={p.id} p={p} machines={machines} db={db} onCheck={onCheck} indent
+                 bold={groupBy==="task"?machineName(p.machine_id):p.title} sub={planDetail(p)}/>
       ))}
     </div>
   );
@@ -2315,15 +2332,25 @@ function InterventionModal({machines,onClose,onSave}) {
 }
 
 function PreventifModal({machines,onClose,onSave}) {
-  const [f,setF] = useState({machine:machines[0]?.id,title:"",freq:30,freqH:"",next:today(),checklist:[],once:false});
+  const [f,setF] = useState({machines:machines[0]?[machines[0].id]:[],title:"",freq:30,freqH:"",next:today(),checklist:[],once:false});
   const [step,setStep] = useState("");
   const addStep = () => { if(!step.trim()) return; setF({...f,checklist:[...f.checklist,step.trim()]}); setStep(""); };
+  const toggle = id => setF({...f, machines: f.machines.includes(id) ? f.machines.filter(x=>x!==id) : [...f.machines, id]});
   return (
     <Modal title="Nouvelle gamme préventive" onClose={onClose}>
-      <label style={{font:"500 12px system-ui",color:"var(--muted)"}}>Machine</label>
-      <Dropdown style={{marginBottom:10}} value={f.machine}
-                options={machines.map(m=>({value:m.id,label:(m.code?m.code+" — ":"")+m.name,sub:m.family}))}
-                onChange={v=>setF({...f,machine:v})}/>
+      <label style={{font:"500 12px system-ui",color:"var(--muted)"}}>Machines concernées ({f.machines.length})</label>
+      <div style={{display:"flex",gap:8,margin:"4px 0 6px"}}>
+        <button className="btn ghost sm" onClick={()=>setF({...f,machines:machines.map(m=>m.id)})}>Toutes</button>
+        <button className="btn ghost sm" onClick={()=>setF({...f,machines:[]})}>Aucune</button>
+      </div>
+      <div style={{maxHeight:150,overflow:"auto",border:"1px solid #E3E5E8",marginBottom:10}}>
+        {machines.map(m=>(
+          <label key={m.id} style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderBottom:"1px solid #EEE",cursor:"pointer",font:"600 13px system-ui",background:f.machines.includes(m.id)?"rgba(255,196,0,.10)":"#fff"}}>
+            <input type="checkbox" checked={f.machines.includes(m.id)} onChange={()=>toggle(m.id)} style={{width:16,height:16,margin:0}}/>
+            {(m.code?m.code+" — ":"")+m.name}
+          </label>
+        ))}
+      </div>
       <input placeholder="Titre (ex: Contrôle niveaux + graissage)" value={f.title} onChange={e=>setF({...f,title:e.target.value})} style={{marginBottom:10}}/>
       <label style={{display:"flex",alignItems:"center",gap:8,font:"600 13px system-ui",margin:"2px 0 10px",cursor:"pointer"}}>
         <input type="checkbox" checked={f.once} style={{width:17,height:17,margin:0}} onChange={e=>setF({...f,once:e.target.checked})}/>
@@ -2349,7 +2376,9 @@ function PreventifModal({machines,onClose,onSave}) {
                onChange={e=>setStep(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"){e.preventDefault();addStep();}}}/>
         <button className="btn sm" disabled={!step.trim()} onClick={addStep}>+</button>
       </div>
-      <button className="btn" disabled={!f.title||!f.machine} onClick={()=>onSave({...f, freq:f.once?0:f.freq, freqH:f.once?"":f.freqH})} style={{width:"100%",marginTop:6}}>Créer</button>
+      <button className="btn" disabled={!f.title||!f.machines.length} onClick={()=>onSave({...f, freq:f.once?0:f.freq, freqH:f.once?"":f.freqH})} style={{width:"100%",marginTop:6}}>
+        Créer{f.machines.length>1?` sur ${f.machines.length} machines`:""}
+      </button>
     </Modal>
   );
 }
