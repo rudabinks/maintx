@@ -908,23 +908,15 @@ function App({session}) {
 
   const ITEM = {
     dashboard:{label:"Accueil",ico:"🏠",badge:kpi.pannes,color:"var(--alarm)"},
-    interventions:{label:"Interventions",ico:"🔧",badge:kpi.ouvertes,color:"#3B4048"},
+    interventions:{label:"Interventions",ico:"🔧",badge:kpi.ouvertes+kpi.pending,color:kpi.pending>0?"var(--accent)":"#3B4048"},
     parc:{label:"Machines",ico:"⚙️"},
     preventif:{label:"Préventif",ico:"🗓",badge:kpi.retard,color:"var(--alarm)"},
-    triage:{label:"À trier",ico:"📥",badge:kpi.pending,color:"var(--accent)"},
     pieces:{label:"Pièces détachées",ico:"🔩",badge:kpi.lowStock,color:"var(--warn)"},
     analyse:{label:"Analyse",ico:"📈"},
     admin:{label:"Clients & accès",ico:"👥",badge:pendingProfiles.length,color:"var(--accent)"},
   };
   const PRIMARY = ["dashboard","interventions","parc","preventif"];       // barre du bas mobile
-  const SECONDARY = ["triage","pieces","analyse",...(isSuper?["admin"]:[])]; // menu "Plus"
-  const SIDEBAR = [
-    ["Suivi",["dashboard","triage"]],
-    ["Maintenance",["interventions","preventif"]],
-    ["Parc & stock",["parc","pieces"]],
-    ["Pilotage",["analyse"]],
-    ...(isSuper?[["Superadmin",["admin"]]]:[]),
-  ];
+  const SECONDARY = ["pieces","analyse",...(isSuper?["admin"]:[])]; // menu "Plus"
   const NavBtn = k => {
     const it = ITEM[k];
     return (
@@ -935,7 +927,7 @@ function App({session}) {
     );
   };
 
-  const TOPNAV = ["dashboard","triage","interventions","preventif","parc","pieces","analyse",...(isSuper?["admin"]:[])];
+  const TOPNAV = ["dashboard","interventions","preventif","parc","pieces","analyse",...(isSuper?["admin"]:[])];
   return (
     <div className="layout" style={{display:"flex",flexDirection:"column",minHeight:"100vh"}}>
       <div className="mobilebar">
@@ -982,7 +974,7 @@ function App({session}) {
         {view.name==="machine" && <MachineDetail machine={machines.find(m=>m.id===view.id)} docs={docs.filter(d=>d.machine_id===view.id)} interventions={interventions.filter(i=>i.machine_id===view.id)} parts={parts} plans={preventifs.filter(p=>p.machine_id===view.id)} db={db} back={()=>setView({name:"parc"})}/>}
         {view.name==="triage" && <Triage interventions={interventions} machineName={machineName} db={db}/>}
         {view.name==="interventions" && <Interventions interventions={interventions} machineName={machineName} db={db} parts={parts} setModal={setModal} setView={setView}/>}
-        {view.name==="preventif" && <Preventif preventifs={preventifs} machines={machines} machineName={machineName} db={db} setModal={setModal}/>}
+        {view.name==="preventif" && <Preventif preventifs={preventifs} interventions={interventions} machines={machines} machineName={machineName} db={db} setModal={setModal}/>}
         {view.name==="pieces" && <Pieces parts={parts} setModal={setModal} db={db}/>}
         {view.name==="analyse" && <Analyse machines={machines} interventions={interventions} org={org} db={db} role={profile.role}/>}
         {view.name==="admin" && isSuper && <>
@@ -1159,12 +1151,12 @@ function Dashboard({machines,interventions,preventifs,parts,org,kpi,machineName,
   const recent = interventions.filter(i=>i.triage!=="pending").slice(0,8);
   return <>
     {kpi.pending>0 && (
-      <div style={{background:"var(--accent)",padding:"12px 16px",marginBottom:16,display:"flex",alignItems:"center",gap:12,flexWrap:"wrap",cursor:"pointer"}} onClick={()=>setView({name:"triage"})}>
-        <span style={{fontSize:20}}>📥</span>
+      <div style={{background:"var(--accent)",padding:"12px 16px",marginBottom:16,display:"flex",alignItems:"center",gap:12,flexWrap:"wrap",cursor:"pointer"}} onClick={()=>setView({name:"interventions"})}>
+        <span style={{fontSize:20}}>🆕</span>
         <span style={{flex:1,font:"700 14px system-ui",color:"var(--ink)"}}>
-          {kpi.pending} nouvelle{kpi.pending>1?"s":""} demande{kpi.pending>1?"s":""} d'intervention à traiter
+          {kpi.pending} nouvelle{kpi.pending>1?"s":""} demande{kpi.pending>1?"s":""} d'intervention à valider
         </span>
-        <span className="btn sm">Trier →</span>
+        <span className="btn sm">Voir →</span>
       </div>
     )}
     <WeeklyBrief org={org} machines={machines} interventions={interventions} preventifs={preventifs} machineName={machineName} db={db}/>
@@ -1588,10 +1580,12 @@ const planIsDue = (p,machines) => p.next_due<=today() || planHoursDue(p,machines
 
 const planDetail = p => `${+p.freq_days>0?`tous les ${p.freq_days} j`:"une seule fois"}${p.freq_hours?` ou ${+p.freq_hours} h`:""}${p.checklist?.length?` · ☑ ${p.checklist.length}`:""}`;
 
-function Preventif({preventifs,machines,machineName,db,setModal}) {
+function Preventif({preventifs,interventions,machines,machineName,db,setModal}) {
   const [checkFor,setCheckFor] = useState(null);
   const [groupBy,setGroupBy] = useState("task"); // task | machine
   const active = preventifs.filter(p=>p.active!==false);
+  const history = (interventions||[]).filter(i=>i.type==="preventive" && i.status==="done")
+    .sort((a,b)=>new Date(b.finished_at||b.reported_at)-new Date(a.finished_at||a.reported_at)).slice(0,40);
   const groups = {};
   active.forEach(p=>{
     const key = groupBy==="task" ? (p.title||"").trim().toLowerCase() : p.machine_id;
@@ -1617,6 +1611,19 @@ function Preventif({preventifs,machines,machineName,db,setModal}) {
       <PreventifGroup key={g.label} g={g} groupBy={groupBy} machines={machines} machineName={machineName} db={db} onCheck={setCheckFor}/>
     ))}
     {active.length===0 && <Empty>Aucune gamme préventive — créez la première avec le bouton ci-dessus.</Empty>}
+    {history.length>0 && (
+      <Foldable title={`Historique des préventifs faits (${history.length})`}>
+        {history.map(i=>(
+          <Row key={i.id} style={{borderLeft:"4px solid var(--run)"}}>
+            <div style={{flex:1}}>
+              <b>{i.title}</b>
+              <div style={{font:"500 12px system-ui",color:"var(--muted)",marginTop:2}}>{machineName(i.machine_id)}</div>
+            </div>
+            <div style={{font:"600 12px system-ui",color:"var(--muted)",whiteSpace:"nowrap"}}>{(i.finished_at||i.reported_at)?.slice(0,10)}</div>
+          </Row>
+        ))}
+      </Foldable>
+    )}
     {checkFor && <ChecklistModal plan={checkFor} onClose={()=>setCheckFor(null)}
                                  onValidate={steps=>{db.donePreventif(checkFor,steps);setCheckFor(null);}}/>}
   </>;
@@ -2140,6 +2147,7 @@ const prioLabel = p => p===3?"Critique":p===2?"Normale":"Basse";
 function Interventions({interventions,machineName,db,parts,setModal,setView}) {
   const [mode,setModeRaw] = useState(()=>localStorage.getItem("mx_int_view")||"list"); // list | table | kanban
   const setMode = v => { localStorage.setItem("mx_int_view",v); setModeRaw(v); };
+  const pending = interventions.filter(i=>i.triage==="pending");
   const open = interventions.filter(i=>i.status!=="done" && i.triage!=="pending");
   const done = interventions.filter(i=>i.status==="done");
   const seg = (v,txt) => (
@@ -2147,6 +2155,17 @@ function Interventions({interventions,machineName,db,parts,setModal,setView}) {
       background:mode===v?"var(--ink)":"#fff",color:mode===v?"var(--accent)":"var(--ink)"}}>{txt}</button>
   );
   return <>
+    {pending.length>0 && (
+      <div style={{marginBottom:18}}>
+        <div style={{font:"800 11px system-ui",textTransform:"uppercase",letterSpacing:".05em",color:"var(--ink)",background:"var(--accent)",padding:"6px 12px",display:"inline-block",marginBottom:8}}>
+          🆕 {pending.length} nouvelle{pending.length>1?"s":""} demande{pending.length>1?"s":""} à valider
+        </div>
+        {pending.map(i=>(
+          <TriageCard key={i.id} i={i} machineName={machineName} db={db}
+                      others={interventions.filter(x=>x.id!==i.id && x.machine_id===i.machine_id && x.status!=="done" && x.triage!=="pending")}/>
+        ))}
+      </div>
+    )}
     <Toolbar>
       <H2>Interventions · {open.length} en cours</H2>
       <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
@@ -2154,7 +2173,7 @@ function Interventions({interventions,machineName,db,parts,setModal,setView}) {
         <button className="btn" onClick={()=>setModal("intervention")}>+ Déclarer</button>
       </div>
     </Toolbar>
-    {mode==="kanban" ? <IntKanban list={open.concat(done)} machineName={machineName} setView={setView}/>
+    {mode==="kanban" ? <IntKanban list={open.concat(done)} machineName={machineName} db={db}/>
      : mode==="table" ? <>
          <IntTable rows={open} machineName={machineName} db={db} parts={parts}/>
          {open.length===0 && <Empty>Rien en cours — tout roule ✓</Empty>}
@@ -2195,8 +2214,16 @@ function IntTableRow({i,machineName,db,parts}) {
   </>;
 }
 
-function IntKanban({list,machineName,setView}) {
+function IntKanban({list,machineName,db}) {
   const cols = [["open","Nouvelles"],["in_progress","En cours"],["waiting_parts","Attente pièces"],["done","Terminé"]];
+  const move = (i,v) => v==="__triage" ? db.triage(i,"pending") : db.setInterventionStatus(i,v);
+  const opts = [
+    {value:"open",label:"Ouverte",color:"var(--alarm)"},
+    {value:"in_progress",label:"En cours",color:"var(--warn)"},
+    {value:"waiting_parts",label:"Attente pièces",color:"var(--muted)"},
+    {value:"done",label:"Clôturer",color:"var(--run)"},
+    {value:"__triage",label:"↩ Renvoyer à trier",color:"var(--accent)"},
+  ];
   return (
     <div style={{display:"grid",gridTemplateColumns:"repeat(4,minmax(0,1fr))",gap:10}}>
       {cols.map(([st,label])=>{
@@ -2206,10 +2233,13 @@ function IntKanban({list,machineName,setView}) {
           <div key={st}>
             <div style={{display:"flex",alignItems:"center",gap:6,font:"600 12px system-ui",color:"var(--muted)",marginBottom:8}}>{label}<span style={{marginLeft:"auto"}}>{items.length}</span></div>
             {items.map(i=>(
-              <div key={i.id} onClick={()=>setView({name:"machine",id:i.machine_id})} style={{background:"#fff",borderRadius:8,borderLeft:`3px solid ${prioColor(i.priority)}`,padding:"10px 11px",marginBottom:8,cursor:"pointer",opacity:st==="done"?.7:1,border:"0.5px solid #E3E5E8",borderLeftWidth:3}}>
+              <div key={i.id} style={{background:"#fff",borderRadius:8,border:"0.5px solid #E3E5E8",borderLeft:`3px solid ${prioColor(i.priority)}`,padding:"10px 11px",marginBottom:8,opacity:st==="done"?.75:1}}>
                 <div style={{font:"700 10px ui-monospace,monospace",color:"var(--muted)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{machineName(i.machine_id)||"—"}</div>
-                <div style={{font:"600 12px system-ui",margin:"3px 0 5px"}}>{i.title}</div>
-                {i.failure_cause && <span style={{font:"600 10px system-ui",padding:"1px 7px",borderRadius:8,background:PILL[i.status]?.bg||"var(--bg)",color:FAILCAUSE[i.failure_cause]?.color}}>{FAILCAUSE[i.failure_cause]?.label}</span>}
+                <div style={{font:"600 12px system-ui",margin:"3px 0 6px"}}>{i.title}</div>
+                {i.failure_cause && <span style={{font:"600 10px system-ui",padding:"1px 7px",borderRadius:8,background:PILL[i.status]?.bg||"var(--bg)",color:FAILCAUSE[i.failure_cause]?.color,marginRight:6}}>{FAILCAUSE[i.failure_cause]?.label}</span>}
+                <div style={{marginTop:8}}>
+                  <Dropdown width={"100%"} align="left" value={null} placeholder="Déplacer…" options={opts} onChange={v=>move(i,v)}/>
+                </div>
               </div>
             ))}
             {items.length===0 && <div style={{font:"500 11px system-ui",color:"var(--muted)",padding:"4px 2px"}}>—</div>}
