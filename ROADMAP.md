@@ -123,7 +123,11 @@ plus. En cas de doute : moins de clics, moins de champs, plus gros boutons.
 - [ ] Migration Vite + React multi-fichiers (même design/comportement)
 - [ ] Facturation Stripe
 - [ ] Plan Connect : ingestion machine_events + TRS (FOCAS/MTConnect, alternance
-      Dreamtech)
+      Dreamtech). Lilian A DÉJÀ un système FOCAS qui récupère en temps réel l'état
+      actif/inactif du parc → à brancher ensemble (ingestion machine_events).
+      Idée production/argent : "pas déclaré en panne = ça tourne = ça produit" comme
+      proxy manuel en attendant ; version fiable = temps de fonctionnement réel FOCAS
+      × taux €/h → valeur produite mise en avant sur le dashboard
 - [ ] Auto-hébergement : Supabase self-hosted sur serveur perso de Lilian (long terme ;
       hébergement UE Supabase confirmé en attendant — argument RGPD actif)
 

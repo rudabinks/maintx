@@ -1896,39 +1896,60 @@ function Analyse({machines,interventions,org,db,role}) {
   const sansCause = curatives.filter(i=>!i.failure_cause).length;
 
   const [retro,setRetro] = useState(false);
+  // Totaux pour le résumé
+  const mttrMin = doneWithTime.length ? Math.round(doneWithTime.reduce((a,i)=>a+(new Date(i.finished_at)-new Date(i.started_at))/60000,0)/doneWithTime.length) : null;
+  const totalDownMin = Math.round(doneWithTime.reduce((a,i)=>a+(new Date(i.finished_at)-new Date(i.started_at))/60000,0));
+  const totalPartsCost = interventions.reduce((a,i)=>a+(i.parts_used||[]).reduce((s,u)=>s+(+u.cost||0),0),0);
+  const totalCost = Math.round(totalPartsCost + (totalDownMin/60)*(+rate||0));
+  const prevN = interventions.filter(i=>i.type==="preventive").length;
+  const prevPct = total ? Math.round(100*prevN/total) : 0;
   return <>
     <Toolbar>
-      <H2>Pareto des causes de panne</H2>
+      <H2>Analyse</H2>
       {["manager","superadmin"].includes(role) && <button className="btn" onClick={()=>setRetro(true)}>🎉 Rétro {new Date().getFullYear()}</button>}
     </Toolbar>
-    <BarChart data={pareto} color="var(--warn)" empty="Renseignez la cause des pannes (menu « Cause ? » sur chaque intervention curative) pour voir apparaître le Pareto."/>
     {retro && <Retro org={org} machines={machines} interventions={interventions} rate={+rate||0} onClose={()=>setRetro(false)}/>}
+
+    <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(148px,1fr))",gap:10,marginBottom:8}}>
+      <Kpi label="Interventions" value={total}/>
+      <Kpi label="Part préventif" value={prevPct+"%"} color="var(--run)" alert={prevPct>=50}/>
+      <Kpi label="MTTR moyen" value={mttrMin?mttrMin+" min":"—"}/>
+      <Kpi label="Arrêt total" value={totalDownMin?Math.round(totalDownMin/60)+" h":"—"}/>
+      <Kpi label="Coût maintenance" value={totalCost.toLocaleString("fr-FR")+" €"}/>
+    </div>
+
+    <H2>Causes de panne (les plus fréquentes)</H2>
+    <HBarChart data={pareto} color="var(--warn)" empty="Renseignez la cause des pannes (menu « Cause ? » sur les interventions curatives)."/>
     {sansCause>0 && pareto.length>0 && (
-      <div style={{font:"500 12px system-ui",color:"var(--muted)",marginTop:-4}}>
-        {sansCause} panne{sansCause>1?"s":""} sans cause renseignée — non comptée{sansCause>1?"s":""} dans le graphique.
+      <div style={{font:"500 12px system-ui",color:"var(--muted)",marginTop:6}}>
+        {sansCause} panne{sansCause>1?"s":""} sans cause renseignée — non comptée{sansCause>1?"s":""}.
       </div>
     )}
-    <H2>Coût de maintenance par machine (€)</H2>
-    <div className="card" style={{maxWidth:560,display:"flex",gap:10,alignItems:"center",flexWrap:"wrap",marginBottom:12}}>
-      <b style={{font:"700 12px system-ui",textTransform:"uppercase"}}>Taux horaire main d'œuvre :</b>
+
+    <H2>Coût de maintenance par machine</H2>
+    <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap",marginBottom:10}}>
+      <span style={{font:"600 12px system-ui",color:"var(--muted)"}}>Taux horaire main d'œuvre</span>
       <input type="number" min="0" value={rate} onChange={e=>setRate(e.target.value)} style={{width:90}}/>
       <span style={{font:"600 13px system-ui"}}>€/h</span>
       <button className="btn sm" disabled={+rate===+(org?.settings?.hourly_rate??45)} onClick={()=>db.saveHourlyRate(rate)}>Enregistrer</button>
     </div>
-    <BarChart data={costByMachine} color="var(--ink)" empty="Pas encore de coûts — saisissez les pièces utilisées sur les interventions et clôturez-les pour mesurer le temps passé."/>
-    <H2>Temps d'arrêt par machine (minutes)</H2>
-    <BarChart data={downtimeByMachine} color="var(--alarm)" empty="Pas encore de temps d'arrêt mesuré — passez des interventions En cours → Clôturée."/>
+    <HBarChart data={costByMachine} color="var(--ink)" unit="€" empty="Saisissez les pièces utilisées et clôturez les interventions pour mesurer les coûts."/>
+
+    <H2>Temps d'arrêt par machine</H2>
+    <HBarChart data={downtimeByMachine} color="var(--alarm)" unit="min" empty="Passez des interventions En cours → Clôturée pour mesurer les arrêts."/>
+
     <H2>Interventions par mois</H2>
     <BarChart data={months} color="var(--ink)"/>
-    <H2>Répartition par type</H2>
+
+    <H2>Curatif vs préventif</H2>
     {total>0 ? (
-      <div className="card" style={{maxWidth:560}}>
+      <div className="card">
         {byType.map(t=>(
           <div key={t.label} style={{margin:"8px 0"}}>
             <div style={{display:"flex",justifyContent:"space-between",font:"600 12px system-ui",marginBottom:3}}>
               <span>{t.label}</span><span>{t.value} ({Math.round(100*t.value/total)}%)</span>
             </div>
-            <div style={{background:"var(--bg)",height:12}}>
+            <div style={{background:"var(--bg)",height:14}}>
               <div style={{width:(100*t.value/total)+"%",height:"100%",background:t.label==="Curatif"?"var(--alarm)":t.label==="Préventif"?"var(--run)":"var(--warn)"}}/>
             </div>
           </div>
@@ -1991,6 +2012,24 @@ function Retro({org,machines,interventions,rate,onClose}) {
         {slides.map((_,j)=><span key={j} style={{width:22,height:5,background:j===k?"var(--accent)":"#3B4048"}}/>)}
       </div>
       <div style={{position:"absolute",bottom:44,font:"500 11px system-ui",color:"#5E646E"}}>Cliquez pour avancer</div>
+    </div>
+  );
+}
+
+function HBarChart({data,color,unit,empty}) {
+  if (!data.length || data.every(d=>!d.value)) return <Empty>{empty||"Pas encore de données."}</Empty>;
+  const max = Math.max(...data.map(d=>d.value),1);
+  return (
+    <div className="card">
+      {data.map((d,k)=>(
+        <div key={k} style={{display:"flex",alignItems:"center",gap:10,margin:"6px 0"}}>
+          <div style={{width:120,flexShrink:0,font:"600 12px system-ui",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={d.label}>{d.label}</div>
+          <div style={{flex:1,background:"var(--bg)",height:20}}>
+            <div style={{width:Math.max(2,Math.round(100*d.value/max))+"%",height:"100%",background:color}}/>
+          </div>
+          <div style={{width:76,flexShrink:0,textAlign:"right",font:"700 12px system-ui"}}>{d.value.toLocaleString("fr-FR")}{unit?" "+unit:""}</div>
+        </div>
+      ))}
     </div>
   );
 }
