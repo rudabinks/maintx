@@ -770,6 +770,21 @@ function App({session}) {
       await sb.from("interventions").insert({org_id:orgId,machine_id:p.machine_id,type:"preventive",priority:1,title:p.title,description:desc,status:"done",reported_by:profile.id,started_at:new Date().toISOString(),finished_at:new Date().toISOString()});
       refresh();
     },
+    donePreventifBatch: async plans => {
+      if (!plans.length) return;
+      if (!confirm(`Valider « ${plans[0].title} » sur ${plans.length} machine(s) ?`)) return;
+      const now = new Date().toISOString();
+      for (const p of plans) {
+        const m = machines.find(x=>x.id===p.machine_id);
+        const patch = +p.freq_days>0
+          ? {next_due:addDays(today(),p.freq_days), last_done_hours:m?+m.meter_hours:+p.last_done_hours}
+          : {active:false};
+        await sb.from("preventive_plans").update(patch).eq("id",p.id);
+        const desc = p.checklist?.length ? "Checklist (validée en lot) :\n"+p.checklist.map(s=>"✓ "+(s.step||s)).join("\n") : null;
+        await sb.from("interventions").insert({org_id:orgId,machine_id:p.machine_id,type:"preventive",priority:1,title:p.title,description:desc,status:"done",reported_by:profile.id,started_at:now,finished_at:now});
+      }
+      refresh();
+    },
     uploadDoc: async (machineId, file, category) => {
       const path = `${orgId}/${machineId}/${Date.now()}_${file.name.replace(/[^a-zA-Z0-9._-]/g,"_")}`;
       const {error:e1} = await sb.storage.from("docs").upload(path, file);
@@ -848,7 +863,7 @@ function App({session}) {
     const d90 = new Date(Date.now()-90*864e5).toISOString();
     const counts = {};
     interventions.filter(i=>i.type==="curative" && i.reported_at>d90).forEach(i=>{counts[i.machine_id]=(counts[i.machine_id]||0)+1;});
-    const chroniques = Object.entries(counts).filter(([,n])=>n>=3).map(([mid,n])=>({m:machines.find(x=>x.id===mid),n}));
+    const chroniques = Object.entries(counts).filter(([,n])=>n>=3).map(([mid,n])=>({mid,m:machines.find(x=>x.id===mid),n}));
     return {pannes,ouvertes,mttr,retard,chroniques,lowStock,pending};
   }, [machines,interventions,preventifs,parts]);
 
@@ -1068,6 +1083,20 @@ function WeeklyBrief({org,machines,interventions,preventifs,machineName,db}) {
   );
 }
 
+function ChronicAlert({chroniques}) {
+  const [,force] = useState(0);
+  // masquable ; réapparaît si le nombre de pannes augmente (nouvelle clé)
+  const visible = chroniques.filter(c=>localStorage.getItem(`mx_chronic_${c.mid}_${c.n}`)!=="1");
+  if (!visible.length) return null;
+  const dismiss = () => { visible.forEach(c=>localStorage.setItem(`mx_chronic_${c.mid}_${c.n}`,"1")); force(x=>x+1); };
+  return (
+    <div style={{background:"#FDECEA",border:"1px solid var(--alarm)",color:"var(--alarm)",padding:"12px 16px",margin:"16px 0",font:"600 13px system-ui",display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+      <span style={{flex:1}}>⚠ Panne récurrente : {visible.map(c=>`${c.m?.name} (${c.n} curatifs / 90 j)`).join(", ")}</span>
+      <button className="btn ghost sm" style={{borderColor:"var(--alarm)",color:"var(--alarm)"}} onClick={dismiss}>Masquer</button>
+    </div>
+  );
+}
+
 function Dashboard({machines,interventions,preventifs,org,kpi,machineName,db,setView}) {
   const degOver = machines.filter(m=>m.status==="degraded" && m.degraded_deadline && m.degraded_deadline<today());
   return <>
@@ -1094,11 +1123,7 @@ function Dashboard({machines,interventions,preventifs,org,kpi,machineName,db,set
         ⏰ Mode dégradé dépassé : {degOver.map(m=>`${m.name} (à réparer avant le ${m.degraded_deadline})`).join(", ")} — planifiez la réparation.
       </div>
     )}
-    {kpi.chroniques.length>0 && (
-      <div style={{background:"#FDECEA",border:"1px solid var(--alarm)",color:"var(--alarm)",padding:"12px 16px",margin:"16px 0",font:"600 13px system-ui"}}>
-        ⚠ Panne chronique : {kpi.chroniques.map(c=>`${c.m?.name} (${c.n} curatifs / 90 j)`).join(", ")}
-      </div>
-    )}
+    <ChronicAlert chroniques={kpi.chroniques}/>
     <H2>Dernières interventions</H2>
     {interventions.slice(0,5).map(i=><IRow key={i.id} i={i} machineName={machineName} db={db}/>)}
     {interventions.length===0 && <Empty>Aucune intervention pour l'instant.</Empty>}
@@ -1482,37 +1507,74 @@ function QRTab({machine}) {
 }
 
 /* ------------------------- PRÉVENTIF ------------------------- */
+const planIsDue = (p,machines) => p.next_due<=today() || planHoursDue(p,machines);
+
 function Preventif({preventifs,machines,machineName,db,setModal}) {
   const [checkFor,setCheckFor] = useState(null);
+  const active = preventifs.filter(p=>p.active!==false);
+  // Regroupement par type de tâche (titre) pour agir sur plusieurs machines d'un coup
+  const groups = {};
+  active.forEach(p=>{
+    const key = (p.title||"").trim().toLowerCase();
+    (groups[key] = groups[key] || {title:p.title, plans:[]}).plans.push(p);
+  });
+  const groupList = Object.values(groups)
+    .map(g=>({...g, due:g.plans.filter(p=>planIsDue(p,machines)).length}))
+    .sort((a,b)=> b.due-a.due || a.title.localeCompare(b.title));
   return <>
-    <Toolbar><H2>Gammes préventives</H2><button className="btn" onClick={()=>setModal("preventif")}>+ Nouvelle gamme</button></Toolbar>
-    {preventifs.filter(p=>p.active!==false).map(p=>{
-      const hDue = planHoursDue(p,machines);
-      const late = p.active && (p.next_due<=today() || hDue);
-      const nbSteps = p.checklist?.length || 0;
-      const m = machines.find(x=>x.id===p.machine_id);
-      return (
-        <Row key={p.id} style={{borderLeft:`4px solid ${late?"var(--alarm)":"var(--run)"}`}}>
-          <div style={{flex:1}}>
-            <b>{p.title}</b>
-            <div style={{font:"500 12px system-ui",color:"var(--muted)",marginTop:2}}>
-              {machineName(p.machine_id)} · {+p.freq_days>0 ? `tous les ${p.freq_days} j` : "une seule fois"}
-              {p.freq_hours ? ` ou ${+p.freq_hours} h (${m?Math.max(0,+m.meter_hours-+p.last_done_hours):0}/${+p.freq_hours} h)` : ""}
-              {nbSteps>0 && ` · ☑ ${nbSteps} points`}
-            </div>
-          </div>
-          <div style={{textAlign:"right"}}>
-            <div style={{fontWeight:700,color:late?"var(--alarm)":"var(--ink)"}}>{p.next_due}</div>
-            <div style={{font:"500 12px system-ui",color:"var(--muted)"}}>{late?(hDue?"COMPTEUR ATTEINT":"EN RETARD"):"planifié"}</div>
-          </div>
-          <button className="btn sm" onClick={()=>nbSteps>0 ? setCheckFor(p) : db.donePreventif(p)}>✓ Fait</button>
-        </Row>
-      );
-    })}
-    {preventifs.length===0 && <Empty>Aucune gamme préventive — créez la première avec le bouton ci-dessus.</Empty>}
+    <Toolbar><H2>Préventif</H2><button className="btn" onClick={()=>setModal("preventif")}>+ Nouvelle gamme</button></Toolbar>
+    {groupList.map(g=>(
+      <PreventifGroup key={g.title} g={g} machines={machines} machineName={machineName} db={db} onCheck={setCheckFor}/>
+    ))}
+    {active.length===0 && <Empty>Aucune gamme préventive — créez la première avec le bouton ci-dessus.</Empty>}
     {checkFor && <ChecklistModal plan={checkFor} onClose={()=>setCheckFor(null)}
                                  onValidate={steps=>{db.donePreventif(checkFor,steps);setCheckFor(null);}}/>}
   </>;
+}
+
+function PlanRow({p,machines,machineName,db,onCheck,grouped}) {
+  const late = planIsDue(p,machines);
+  const nbSteps = p.checklist?.length || 0;
+  const m = machines.find(x=>x.id===p.machine_id);
+  const title = grouped ? machineName(p.machine_id) : p.title;
+  const sub = grouped
+    ? `${+p.freq_days>0?`tous les ${p.freq_days} j`:"une seule fois"}${p.freq_hours?` ou ${+p.freq_hours} h`:""}${nbSteps>0?` · ☑ ${nbSteps}`:""}`
+    : `${machineName(p.machine_id)} · ${+p.freq_days>0?`tous les ${p.freq_days} j`:"une seule fois"}${p.freq_hours?` ou ${+p.freq_hours} h`:""}${nbSteps>0?` · ☑ ${nbSteps} points`:""}`;
+  return (
+    <Row style={{borderLeft:`4px solid ${late?"var(--alarm)":"var(--run)"}`,...(grouped?{marginLeft:12,marginRight:0}:{})}}>
+      <div style={{flex:1}}>
+        <b>{title||"—"}</b>
+        <div style={{font:"500 12px system-ui",color:"var(--muted)",marginTop:2}}>{sub}</div>
+      </div>
+      <div style={{textAlign:"right"}}>
+        <div style={{fontWeight:700,color:late?"var(--alarm)":"var(--ink)"}}>{p.next_due}</div>
+        <div style={{font:"500 12px system-ui",color:"var(--muted)"}}>{late?(planHoursDue(p,machines)?"COMPTEUR":"EN RETARD"):"planifié"}</div>
+      </div>
+      <button className="btn sm" onClick={()=>nbSteps>0 ? onCheck(p) : db.donePreventif(p)}>✓ Fait</button>
+    </Row>
+  );
+}
+
+function PreventifGroup({g,machines,machineName,db,onCheck}) {
+  const [open,setOpen] = useState(false);
+  if (g.plans.length===1)
+    return <PlanRow p={g.plans[0]} machines={machines} machineName={machineName} db={db} onCheck={onCheck}/>;
+  return (
+    <div style={{border:`1px solid ${g.due>0?"var(--alarm)":"#E3E5E8"}`,marginBottom:10}}>
+      <div style={{display:"flex",alignItems:"center",gap:10,padding:"12px 16px",background:"var(--panel)",flexWrap:"wrap"}}>
+        <div style={{flex:1,cursor:"pointer",minWidth:180}} onClick={()=>setOpen(!open)}>
+          <b>{open?"▾":"▸"} {g.title}</b>
+          <div style={{font:"500 12px system-ui",color:"var(--muted)",marginTop:2}}>
+            {g.plans.length} machines{g.due>0?` · ${g.due} à faire`:" · à jour"}
+          </div>
+        </div>
+        <button className="btn sm" onClick={()=>db.donePreventifBatch(g.plans)}>✓ Tout valider ({g.plans.length})</button>
+      </div>
+      {open && g.plans.map(p=>(
+        <PlanRow key={p.id} p={p} machines={machines} machineName={machineName} db={db} onCheck={onCheck} grouped/>
+      ))}
+    </div>
+  );
 }
 
 function ChecklistModal({plan,onClose,onValidate}) {
