@@ -6,11 +6,14 @@ const planDetail = p => `${+p.freq_days>0?`tous les ${p.freq_days} j`:"une seule
 function Preventif({preventifs,interventions,machines,machineName,db,setModal}) {
   const [checkFor,setCheckFor] = useState(null);
   const [groupBy,setGroupBy] = useState("task"); // task | machine
+  const [onlyDue,setOnlyDue] = useState(true);    // à faire seulement (défaut) | toutes
   const active = preventifs.filter(p=>p.active!==false);
+  const dueCount = active.filter(p=>planIsDue(p,machines)).length;
+  const source = onlyDue ? active.filter(p=>planIsDue(p,machines)) : active;
   const history = (interventions||[]).filter(i=>i.type==="preventive" && i.status==="done")
     .sort((a,b)=>new Date(b.finished_at||b.reported_at)-new Date(a.finished_at||a.reported_at)).slice(0,40);
   const groups = {};
-  active.forEach(p=>{
+  source.forEach(p=>{
     const key = groupBy==="task" ? (p.title||"").trim().toLowerCase() : p.machine_id;
     const label = groupBy==="task" ? p.title : machineName(p.machine_id);
     (groups[key] = groups[key] || {label, plans:[]}).plans.push(p);
@@ -22,10 +25,15 @@ function Preventif({preventifs,interventions,machines,machineName,db,setModal}) 
     <button onClick={()=>setGroupBy(val)} style={{border:0,padding:"8px 12px",cursor:"pointer",font:"700 12px system-ui",
       background:groupBy===val?"var(--ink)":"#fff",color:groupBy===val?"var(--accent)":"var(--ink)"}}>{txt}</button>
   );
+  const dueBtn = (val,txt) => (
+    <button onClick={()=>setOnlyDue(val)} style={{border:0,padding:"8px 12px",cursor:"pointer",font:"700 12px system-ui",
+      background:onlyDue===val?"var(--ink)":"#fff",color:onlyDue===val?"var(--accent)":"var(--ink)"}}>{txt}</button>
+  );
   return <>
     <Toolbar>
-      <H2>Préventif</H2>
+      <H2>Préventif{onlyDue?` · ${dueCount} à faire`:""}</H2>
       <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+        <div style={{display:"flex",border:"1.5px solid var(--ink)"}}>{dueBtn(true,"À faire")}{dueBtn(false,"Toutes")}</div>
         <div style={{display:"flex",border:"1.5px solid var(--ink)"}}>{segBtn("task","Par tâche")}{segBtn("machine","Par machine")}</div>
         <button className="btn" onClick={()=>setModal("preventif")}>+ Nouvelle gamme</button>
       </div>
@@ -34,6 +42,7 @@ function Preventif({preventifs,interventions,machines,machineName,db,setModal}) 
       <PreventifGroup key={g.label} g={g} groupBy={groupBy} machines={machines} machineName={machineName} db={db} onCheck={setCheckFor}/>
     ))}
     {active.length===0 && <Empty>Aucune gamme préventive — créez la première avec le bouton ci-dessus.</Empty>}
+    {active.length>0 && source.length===0 && onlyDue && <Empty>Rien à faire — tout le préventif est à jour ✓</Empty>}
     {history.length>0 && (
       <Foldable title={`Historique des préventifs faits (${history.length})`}>
         {history.map(i=>(

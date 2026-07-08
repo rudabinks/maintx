@@ -3,7 +3,7 @@ function Parc({machines,interventions,preventifs,setModal,setView,isSuper}) {
     <Toolbar>
       <H2>Parc machines ({machines.length})</H2>
       <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-        {machines.length>0 && <button className="btn ghost" onClick={()=>printAllQR(machines)}>🖨 Étiquettes QR</button>}
+        {machines.length>0 && <button className="btn ghost" onClick={()=>printAllQR(machines)}>🖨 Étiquettes QR (A4)</button>}
         {isSuper && <button className="btn ghost" onClick={()=>setModal("import")}>⤒ Importer CSV</button>}
         <button className="btn" onClick={()=>setModal("machine")}>+ Ajouter</button>
       </div>
@@ -385,32 +385,29 @@ function printAllQR(machines) {
   const cards = machines.map(m => {
     const el = document.createElement("div");
     holder.appendChild(el);
-    new QRCode(el, {text: base + "#/qr/" + m.qr_token, width:150, height:150, correctLevel:QRCode.CorrectLevel.M});
+    new QRCode(el, {text: base + "#/qr/" + m.qr_token, width:420, height:420, correctLevel:QRCode.CorrectLevel.M});
     const img = el.querySelector("canvas")?.toDataURL() || el.querySelector("img")?.src || "";
     return {img, code:esc(m.code), name:esc(m.name)};
   });
   document.body.removeChild(holder);
   const w = window.open("","_blank");
   w.document.write(`<html><head><meta charset="utf-8"><title>Étiquettes QR — MaintX</title><style>
-    @page{margin:8mm}
+    @page{size:A4;margin:0}
     body{font-family:system-ui,sans-serif;margin:0}
-    .grid{display:flex;flex-wrap:wrap;gap:6mm;padding:6mm;align-content:flex-start}
-    .lab{width:58mm;border:1.5px dashed #b8b8b8;padding:5mm 3mm;text-align:center;box-sizing:border-box;break-inside:avoid}
-    .lab .t{font-weight:900;font-size:13px}
-    .lab .s{font-size:9.5px;margin:2px 0 5px;color:#333}
-    .lab img{width:40mm;height:40mm}
-    .lab .n{font-weight:800;font-size:12.5px;margin-top:5px;word-break:break-word}
-    .lab .b{font-size:8px;color:#999;margin-top:3px;letter-spacing:.1em}
+    .page{width:210mm;height:297mm;display:flex;flex-direction:column;align-items:center;justify-content:center;box-sizing:border-box;padding:20mm;page-break-after:always;text-align:center}
+    .page img{width:120mm;height:120mm}
+    .name{font-weight:900;font-size:34px;margin-top:14mm;word-break:break-word;line-height:1.1}
+    .code{font-family:ui-monospace,monospace;font-size:20px;color:#444;margin-top:4mm}
+    .hint{font-size:15px;color:#666;margin-top:10mm}
+    .brand{position:absolute;bottom:12mm;font-size:11px;letter-spacing:.15em;color:#aaa}
   </style></head><body>
-    <div class="grid">
-      ${cards.map(c=>`<div class="lab">
-        <div class="t">⚠ PANNE MACHINE ?</div>
-        <div class="s">Scannez pour prévenir la maintenance</div>
-        <img src="${c.img}"/>
-        <div class="n">${c.code?c.code+" — ":""}${c.name}</div>
-        <div class="b">MAINTX</div>
-      </div>`).join("")}
-    </div>
+    ${cards.map(c=>`<div class="page">
+      <img src="${c.img}"/>
+      <div class="name">${c.name}</div>
+      ${c.code?`<div class="code">${c.code}</div>`:""}
+      <div class="hint">Scannez ce QR code pour signaler une panne</div>
+      <div class="brand">MAINTX</div>
+    </div>`).join("")}
   </body></html>`);
   w.document.close(); w.focus(); setTimeout(()=>w.print(), 500);
 }
