@@ -169,6 +169,27 @@ function App({session}) {
       const {data:o} = await sb.from("organizations").select("*").order("name");
       setOrgs(o||[]); setModal(null);
     },
+    reloadOrgs: async () => { const {data:o} = await sb.from("organizations").select("*").order("name"); setOrgs(o||[]); },
+    setOrgPlan: async (id,plan) => { await sb.from("organizations").update({plan}).eq("id",id); const {data:o}=await sb.from("organizations").select("*").order("name"); setOrgs(o||[]); },
+    fetchOrgMembers: async oid => {
+      const {data} = await sb.from("profiles").select("*").eq("org_id",oid).order("full_name");
+      return data || [];
+    },
+    setProfileRole: async (pid,role) => { await sb.from("profiles").update({role}).eq("id",pid); },
+    removeFromOrg: async pid => {
+      if (!confirm("Retirer cette personne de l'usine ? Elle repassera en attente d'affectation.")) return false;
+      await sb.from("profiles").update({org_id:null,pending:true}).eq("id",pid);
+      loadPending(); return true;
+    },
+    fetchZones: async oid => {
+      const {data} = await sb.from("zones").select("*").eq("org_id",oid).order("name");
+      return data || [];
+    },
+    addZone: async (oid,name) => { await sb.from("zones").insert({org_id:oid,name}); },
+    deleteZone: async zid => {
+      if (!confirm("Supprimer cet atelier / cette zone ?")) return false;
+      await sb.from("zones").delete().eq("id",zid); return true;
+    },
     addPreventif: async f => {
       const ids = f.machines?.length ? f.machines : (f.machine ? [f.machine] : []);
       const rows = ids.map(mid=>{
@@ -376,15 +397,11 @@ function App({session}) {
         {view.name==="analyse" && <Analyse machines={machines} interventions={interventions} org={org} db={db} role={profile.role}/>}
         {view.name==="admin" && isSuper && <>
           <PendingRequests pending={pendingProfiles} orgs={orgs} db={db}/>
-          <Toolbar><H2>Clients ({orgs.length})</H2><button className="btn" onClick={()=>setModal("org")}>+ Nouveau client</button></Toolbar>
+          <Toolbar><H2>Clients &amp; usines ({orgs.length})</H2><button className="btn" onClick={()=>setModal("org")}>+ Nouveau client</button></Toolbar>
           {orgs.map(o=>(
-            <Row key={o.id}>
-              <div style={{flex:1}}><b>{o.name}</b><div style={{font:"500 12px system-ui",color:"var(--muted)"}}>plan {o.plan} · {o.slug}{o.logo_url?" · logo ✓":""}</div></div>
-              <button className="btn ghost sm" title="URL du logo (affiché sur les rapports PDF)"
-                      onClick={()=>{const url=prompt("URL du logo de l'entreprise (image en ligne, ex: https://…/logo.png) :", o.logo_url||""); if(url!==null) db.setOrgLogo(o.id,url.trim());}}>Logo</button>
-              <button className="btn ghost sm" onClick={()=>{setOrgId(o.id);setView({name:"dashboard"});}}>Ouvrir →</button>
-            </Row>
+            <OrgRow key={o.id} o={o} db={db} onOpen={()=>{setOrgId(o.id);setView({name:"dashboard"});}}/>
           ))}
+          {orgs.length===0 && <Empty>Aucun client — créez le premier avec « + Nouveau client ».</Empty>}
         </>}
        </div>
       </main>
