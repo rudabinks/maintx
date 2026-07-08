@@ -68,7 +68,11 @@ function App({session}) {
     ackIntervention: async i => { await sb.from("interventions").update({acked_at:new Date().toISOString()}).eq("id",i.id); refresh(); },
     deleteIntervention: async i => {
       if (!confirm(`Supprimer l'intervention "${i.title}" ? (photos et commentaires inclus)`)) return;
-      await sb.from("interventions").delete().eq("id",i.id); refresh();
+      // supprimer d'abord les doublons fusionnés rattachés (sinon ils réapparaissent)
+      await sb.from("interventions").delete().eq("duplicate_of",i.id);
+      const {error} = await sb.from("interventions").delete().eq("id",i.id);
+      if (error) { alert("Suppression impossible : "+error.message); return; }
+      refresh();
     },
     triage: async (i,st) => {
       const patch = {triage:st};
