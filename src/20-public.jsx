@@ -110,7 +110,7 @@ function QRTechPanel({machine,session,onDeclare}) {
         )}
 
         <button type="button" className="btn ghost" style={{width:"100%",marginTop:12}} onClick={onDeclare}>
-          🔴 Déclarer une panne (mode opérateur)
+          Déclarer une panne (mode opérateur)
         </button>
       </div>
     </Center>
@@ -147,7 +147,7 @@ function QRPage({token}) {
     recRef.current = r; r.start(); setRec(true);
   };
   const [session,setSession] = useState(undefined);
-  const [techMode,setTechMode] = useState(true); // si connecté, on montre l'espace technicien d'abord
+  const [techMode,setTechMode] = useState(false); // par défaut : déclaration opérateur ; le technicien passe par un bouton dédié
   useEffect(() => { (async () => {
     const {data,error} = await sb.rpc("qr_get_machine",{qr:token});
     setMachine(error || !data?.length ? null : data[0]);
@@ -178,26 +178,21 @@ function QRPage({token}) {
           <span style={{color:"var(--accent)"}}>▮▮</span> MAINT<span style={{color:"var(--accent)"}}>X</span>
         </div>
         <div style={{font:"600 11px system-ui",textTransform:"uppercase",letterSpacing:".1em",color:"var(--muted)",marginBottom:20}}>
-          Déclaration de panne · {machine.org_name}
+          Signaler une panne · {machine.org_name}
         </div>
-        {session && (
-          <button type="button" className="btn ghost" style={{width:"100%",marginBottom:16}} onClick={()=>setTechMode(true)}>
-            🔧 Espace technicien (intervenir / dicter)
-          </button>
-        )}
         <div style={{background:"var(--bg)",padding:"12px 16px",marginBottom:18}}>
           <div style={{font:"700 10px ui-monospace,monospace",color:"var(--muted)",textTransform:"uppercase"}}>{machine.code} · {machine.family}</div>
           <div style={{fontWeight:800,fontSize:17}}>{machine.name}</div>
         </div>
         {state === "done" ? (
-          <div style={{textAlign:"center",padding:"16px 0"}}>
-            <div style={{fontSize:40}}>✓</div>
-            <div style={{font:"700 15px system-ui",color:"var(--run)"}}>Panne déclarée</div>
+          <div style={{textAlign:"center",padding:"20px 0 8px"}}>
+            <div style={{width:52,height:52,borderRadius:"50%",background:"var(--run)",color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",font:"700 28px system-ui",margin:"0 auto 12px"}}>✓</div>
+            <div style={{font:"700 16px system-ui",color:"var(--run)"}}>Panne déclarée</div>
             <div style={{font:"500 13px system-ui",color:"var(--muted)",marginTop:6}}>L'équipe maintenance est prévenue.</div>
             {track && (
               <>
-                <a className="btn" style={{display:"block",textAlign:"center",textDecoration:"none",marginTop:16,padding:"14px"}} href={"#/suivi/"+track}>
-                  📍 Suivre la réparation
+                <a className="btn" style={{display:"block",textAlign:"center",textDecoration:"none",marginTop:18,padding:"14px"}} href={"#/suivi/"+track}>
+                  Suivre la réparation
                 </a>
                 <div style={{font:"500 11px system-ui",color:"var(--muted)",marginTop:8}}>
                   Gardez ce lien : il vous montre l'avancement en direct, sans compte.
@@ -207,31 +202,32 @@ function QRPage({token}) {
           </div>
         ) : (
           <>
-            <textarea placeholder="Décrivez le problème (ex: alarme broche, fuite d'huile…)" rows={3}
+            <label style={{font:"600 12px system-ui",display:"block",marginBottom:6}}>Que se passe-t-il ?</label>
+            <textarea placeholder="Ex : alarme broche, fuite d'huile, bruit anormal…" rows={3}
                       value={desc} onChange={e=>setDesc(e.target.value)} style={{marginBottom:8}}/>
             {SR && (
-              <button type="button" className="btn ghost" style={{width:"100%",marginBottom:10,...(rec?{borderColor:"var(--alarm)",color:"var(--alarm)"}:{})}} onClick={dictate}>
-                {rec ? "⏹ Arrêter la dictée" : "🎙️ Décrire à la voix"}
+              <button type="button" className="btn ghost sm" style={{width:"100%",marginBottom:14,...(rec?{borderColor:"var(--alarm)",color:"var(--alarm)"}:{})}} onClick={dictate}>
+                {rec ? "Arrêter la dictée" : "Décrire à la voix"}
               </button>
             )}
-            <label className="btn ghost" style={{display:"block",width:"100%",textAlign:"center",marginBottom:10,cursor:"pointer"}}>
-              {photo ? "📷 "+(photo.name.length>28?photo.name.slice(0,28)+"…":photo.name)+" ✓" : "📷 Ajouter une photo (optionnel)"}
+            <label className="btn ghost sm" style={{display:"block",width:"100%",textAlign:"center",marginBottom:14,cursor:"pointer"}}>
+              {photo ? "Photo ajoutée : "+(photo.name.length>22?photo.name.slice(0,22)+"…":photo.name) : "Ajouter une photo (optionnel)"}
               <input type="file" accept="image/*" capture="environment" style={{display:"none"}}
                      onChange={e=>setPhoto(e.target.files[0]||null)}/>
             </label>
             <div style={{font:"600 12px system-ui",marginBottom:6}}>La machine peut-elle encore tourner ?</div>
-            <div style={{display:"flex",gap:8,marginBottom:12}}>
+            <div style={{display:"flex",gap:8,marginBottom:14}}>
               <button type="button" onClick={()=>setCanRun(false)}
-                      style={{flex:1,padding:"12px 6px",cursor:"pointer",font:"700 13px system-ui",
+                      style={{flex:1,padding:"12px 6px",cursor:"pointer",font:"700 13px system-ui",display:"flex",alignItems:"center",justifyContent:"center",gap:8,
                               border:canRun===false?"2px solid var(--alarm)":"1.5px solid #D5D8DC",
                               background:canRun===false?"#FDECEA":"#fff",color:canRun===false?"var(--alarm)":"var(--ink)"}}>
-                🔴 Non, arrêtée
+                <span style={{width:12,height:12,background:"var(--alarm)",borderRadius:2,flex:"none"}}/> Non, arrêtée
               </button>
               <button type="button" onClick={()=>setCanRun(true)}
-                      style={{flex:1,padding:"12px 6px",cursor:"pointer",font:"700 13px system-ui",
-                              border:canRun===true?"2px solid var(--accent)":"1.5px solid #D5D8DC",
-                              background:canRun===true?"#FFF7DB":"#fff"}}>
-                🟡 Oui, elle tourne
+                      style={{flex:1,padding:"12px 6px",cursor:"pointer",font:"700 13px system-ui",display:"flex",alignItems:"center",justifyContent:"center",gap:8,
+                              border:canRun===true?"2px solid var(--warn)":"1.5px solid #D5D8DC",
+                              background:canRun===true?"#FFF7DB":"#fff",color:"var(--ink)"}}>
+                <span style={{width:12,height:12,background:"var(--warn)",borderRadius:2,flex:"none"}}/> Oui, elle tourne
               </button>
             </div>
             <input placeholder="Votre nom (optionnel)" value={name} onChange={e=>setName(e.target.value)} style={{marginBottom:14}}/>
@@ -239,6 +235,12 @@ function QRPage({token}) {
             <button className="btn" style={{width:"100%",padding:"14px"}} disabled={!desc || canRun===null || state==="sending"} onClick={send}>
               {state === "sending" ? "Envoi…" : "Déclarer la panne"}
             </button>
+            <div style={{borderTop:"1px solid #EEE",marginTop:18,paddingTop:12,textAlign:"center"}}>
+              <a style={{font:"600 12px system-ui",color:"var(--muted)",cursor:"pointer",textDecoration:"none"}}
+                 onClick={()=> session ? setTechMode(true) : (window.location.hash="")}>
+                {session ? "Accéder à l'espace technicien →" : "Vous êtes technicien ? Se connecter →"}
+              </a>
+            </div>
           </>
         )}
       </div>

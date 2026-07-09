@@ -12,7 +12,7 @@ function Interventions({interventions,machineName,db,parts,setModal,setView}) {
     {pending.length>0 && (
       <div style={{marginBottom:18}}>
         <div style={{font:"800 11px system-ui",textTransform:"uppercase",letterSpacing:".05em",color:"var(--ink)",background:"var(--accent)",padding:"6px 12px",display:"inline-block",marginBottom:8}}>
-          🆕 {pending.length} nouvelle{pending.length>1?"s":""} demande{pending.length>1?"s":""} à valider
+          {pending.length} nouvelle{pending.length>1?"s":""} demande{pending.length>1?"s":""} à valider
         </div>
         {pending.map(i=>(
           <TriageCard key={i.id} i={i} machineName={machineName} db={db}
@@ -76,7 +76,7 @@ function IntKanban({list,machineName,db}) {
     {value:"in_progress",label:"En cours",color:"var(--warn)"},
     {value:"waiting_parts",label:"Attente pièces",color:"var(--muted)"},
     {value:"done",label:"Clôturer",color:"var(--run)"},
-    {value:"__triage",label:"↩ Renvoyer à trier",color:"var(--accent)"},
+    {value:"__triage",label:"Renvoyer à trier",color:"var(--accent)"},
   ];
   return (
     <div style={{display:"grid",gridTemplateColumns:"repeat(4,minmax(0,1fr))",gap:10}}>
@@ -115,12 +115,12 @@ function IRow({i,machineName,db,full,parts}) {
           <b>{i.title}</b>
           <div style={{font:"500 12px system-ui",color:"var(--muted)",marginTop:2}}>
             {machineName(i.machine_id)} {machineName(i.machine_id)?"· ":""}{ITYPE[i.type]} · {i.reported_at?.slice(0,10)}
-            {photos.length>0 && ` · 📷 ${photos.length}`}
+            {photos.length>0 && ` · ${photos.length} photo${photos.length>1?"s":""}`}
             {i.failure_cause && <span style={{color:FAILCAUSE[i.failure_cause]?.color,fontWeight:700}}> · {FAILCAUSE[i.failure_cause]?.label}</span>}
           </div>
         </div>
         {full && !i.acked_at && i.status==="open" && (
-          <button className="btn sm" title="L'opérateur verra « Prise en compte » sur son suivi" onClick={()=>db.ackIntervention(i)}>👁 Pris en compte</button>
+          <button className="btn sm" title="L'opérateur verra « Prise en compte » sur son suivi" onClick={()=>db.ackIntervention(i)}>Pris en compte</button>
         )}
         {full && i.type==="curative" && (
           <Dropdown width={165} align="right" value={i.failure_cause} placeholder="Cause ?"
@@ -186,7 +186,7 @@ function VoiceReport({i,onApplied,db}) {
   };
   const apply = async () => {
     setState("busy");
-    let body = "🎙️ "+prop.resume;
+    let body = prop.resume;
     if (prop.pieces?.length) body += "\nPièces : "+prop.pieces.join(", ");
     if (prop.actions_restantes) body += "\nReste à faire : "+prop.actions_restantes;
     await db.addComment(i.id, body);
@@ -198,15 +198,15 @@ function VoiceReport({i,onApplied,db}) {
   return (
     <div style={{border:"1.5px dashed #C9CCD1",padding:"10px 12px",marginBottom:12,background:"#fff"}}>
       <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
-        <b style={{font:"700 11px system-ui",textTransform:"uppercase",letterSpacing:".06em"}}>🎙️ Mode mains sales</b>
+        <b style={{font:"700 11px system-ui",textTransform:"uppercase",letterSpacing:".06em"}}>Mode mains sales</b>
         {SR ? (
           state==="rec"
-            ? <button className="btn sm" style={{background:"var(--alarm)",color:"#fff"}} onClick={stop}>⏹ Stop</button>
+            ? <button className="btn sm" style={{background:"var(--alarm)",color:"#fff"}} onClick={stop}>Stop</button>
             : <button className="btn sm" onClick={start} disabled={state==="busy"}>Dicter</button>
         ) : <span style={{font:"500 11px system-ui",color:"var(--muted)"}}>Dictée non supportée sur ce navigateur (Chrome/Edge ou téléphone) — tapez le texte :</span>}
         {state==="rec" && <span style={{color:"var(--alarm)",font:"700 12px system-ui"}}>● Enregistrement… parlez</span>}
         <button className="btn sm" disabled={!text.trim()||state==="busy"||state==="rec"} onClick={analyze}>
-          {state==="busy" ? "Analyse…" : "✨ Analyser"}
+          {state==="busy" ? "Analyse…" : "Analyser"}
         </button>
       </div>
       {(text || state==="rec" || !SR) && (
@@ -220,7 +220,7 @@ function VoiceReport({i,onApplied,db}) {
           <div style={{font:"500 13px system-ui",whiteSpace:"pre-wrap"}}>{prop.resume}</div>
           <div style={{font:"600 12px system-ui",marginTop:8,display:"flex",gap:12,flexWrap:"wrap"}}>
             {prop.cause && <span>Cause : <b style={{color:FAILCAUSE[prop.cause]?.color}}>{FAILCAUSE[prop.cause]?.label||prop.cause}</b></span>}
-            <span>{prop.repare ? "✅ Machine réparée → l'intervention sera clôturée" : "🔧 Non réparée → passera « En cours »"}</span>
+            <span style={{color:prop.repare?"var(--run)":"var(--warn)",fontWeight:700}}>{prop.repare ? "Machine réparée → clôturée" : "Non réparée → passera « En cours »"}</span>
           </div>
           {prop.pieces?.length>0 && <div style={{font:"500 12px system-ui",marginTop:4}}>Pièces : {prop.pieces.join(", ")}</div>}
           {prop.actions_restantes && <div style={{font:"500 12px system-ui",marginTop:4}}>Reste à faire : {prop.actions_restantes}</div>}
@@ -256,7 +256,7 @@ function InterventionDetail({i,db,parts}) {
       {i.description && <div style={{font:"500 13px system-ui",whiteSpace:"pre-wrap",marginBottom:10}}>{i.description}</div>}
       {deja.length>0 && i.status!=="done" && (
         <div style={{background:"#FFF7DB",borderLeft:"4px solid var(--accent)",padding:"10px 12px",marginBottom:12}}>
-          <div style={{font:"700 11px system-ui",textTransform:"uppercase",letterSpacing:".06em",marginBottom:6}}>🔁 Déjà arrivé sur cette machine</div>
+          <div style={{font:"700 11px system-ui",textTransform:"uppercase",letterSpacing:".06em",marginBottom:6}}>Déjà arrivé sur cette machine</div>
           {deja.map(d=>(
             <div key={d.id} style={{font:"500 12px system-ui",padding:"3px 0"}}>
               {d.reported_at?.slice(0,10)} — <b>{d.title}</b>
@@ -269,10 +269,10 @@ function InterventionDetail({i,db,parts}) {
       <VoiceReport i={i} db={db} onApplied={load}/>
       <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center",marginBottom:12}}>
         {photos.map((ph,k)=>(
-          <button key={k} className="btn ghost sm" onClick={()=>db.openPhoto(ph.path)}>📷 {ph.name?.length>20?ph.name.slice(0,20)+"…":ph.name||("photo "+(k+1))}</button>
+          <button key={k} className="btn ghost sm" onClick={()=>db.openPhoto(ph.path)}>{ph.name?.length>20?ph.name.slice(0,20)+"…":ph.name||("photo "+(k+1))}</button>
         ))}
         <label className="btn sm" style={{cursor:"pointer"}}>
-          📷 + Photo
+          + Photo
           <input type="file" accept="image/*" style={{display:"none"}}
                  onChange={e=>{const f=e.target.files[0]; if(f){db.uploadPhoto(i,f); e.target.value="";}}}/>
         </label>
