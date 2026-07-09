@@ -3,7 +3,7 @@ function Parc({machines,interventions,preventifs,setModal,setView,isSuper}) {
     <Toolbar>
       <H2>Parc machines ({machines.length})</H2>
       <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-        {machines.length>0 && <button className="btn ghost" onClick={()=>printAllQR(machines)}>🖨 Étiquettes QR (A4)</button>}
+        {machines.length>0 && <button className="btn ghost" onClick={()=>printAllQR(machines)}><i className="fa-solid fa-print" aria-hidden="true"></i> Étiquettes QR (A4)</button>}
         {isSuper && <button className="btn ghost" onClick={()=>setModal("import")}>⤒ Importer CSV</button>}
         <button className="btn" onClick={()=>setModal("machine")}>+ Ajouter</button>
       </div>
@@ -83,7 +83,7 @@ function DegradedBanner({machine,onEdit}) {
     <div style={{background:over?"#FDECEA":"#FFF7DB",border:`1.5px solid ${over?"var(--alarm)":"var(--accent)"}`,padding:"12px 16px",margin:"12px 0",display:"flex",gap:14,alignItems:"center",flexWrap:"wrap"}}>
       <div style={{flex:1,minWidth:220}}>
         <div style={{font:"800 12px system-ui",textTransform:"uppercase",letterSpacing:".05em",color:over?"var(--alarm)":"var(--ink)"}}>
-          ⚠ Mode dégradé autorisé {over ? "— DATE LIMITE DÉPASSÉE" : ""}
+          <i className="fa-solid fa-triangle-exclamation" aria-hidden="true"></i> Mode dégradé autorisé {over ? "— DATE LIMITE DÉPASSÉE" : ""}
         </div>
         <div style={{font:"500 13px system-ui",marginTop:4}}>{machine.degraded_conditions}</div>
       </div>
@@ -193,7 +193,7 @@ function Docs({machine,docs,db}) {
       <span style={{font:"500 11px system-ui",color:"var(--muted)"}}>Fichier stocké dans MaintX (max 50 Mo, compressez les gros PDF)</span>
     </div>
     <div className="card" style={{display:"flex",gap:10,alignItems:"center",marginBottom:14,flexWrap:"wrap"}}>
-      <b style={{font:"700 12px system-ui",textTransform:"uppercase"}}>🔗 Ou par lien :</b>
+      <b style={{font:"700 12px system-ui",textTransform:"uppercase"}}>Ou par lien :</b>
       <input placeholder="https://drive.google.com/… (Drive, Dropbox, site constructeur)" value={linkUrl}
              onChange={e=>setLinkUrl(e.target.value)} style={{flex:"1 1 240px",width:"auto"}}/>
       <input placeholder="Nom (ex: Catalogue pièces 2024)" value={linkName}
@@ -210,13 +210,13 @@ function Docs({machine,docs,db}) {
           {list.map(d=>(
             <Row key={d.id}>
               <div style={{flex:1,cursor:"pointer"}} onClick={()=>db.openDoc(d)}>
-                <b style={{font:"600 13px system-ui"}}>📄 {d.name}</b>
+                <b style={{font:"600 13px system-ui"}}><i className="fa-regular fa-file" aria-hidden="true"></i> {d.name}</b>
                 <div style={{font:"500 11px system-ui",color:"var(--muted)"}}>{d.created_at?.slice(0,10)}</div>
               </div>
               <Dropdown width={150} align="right" value={d.category}
                         options={Object.entries(DOCCAT).map(([k,v])=>({value:k,label:v.label,color:v.color}))}
                         onChange={cat=>db.setDocCategory(d,cat)}/>
-              {d.storage_path?.startsWith("http") && <span title="Document externe (lien)" style={{font:"600 11px system-ui",color:"var(--muted)"}}>🔗</span>}
+              {d.storage_path?.startsWith("http") && <span title="Document externe (lien)" style={{font:"600 11px system-ui",color:"var(--muted)"}}><i className="fa-solid fa-link" aria-hidden="true"></i></span>}
               <button className="btn ghost sm" onClick={()=>db.openDoc(d)}>Ouvrir</button>
               <button className="btn ghost sm" onClick={()=>db.deleteDoc(d)}>✕</button>
             </Row>
@@ -268,7 +268,7 @@ function Mecano({machine,docs,db}) {
         {h.sources.length>0 && (
           <div style={{display:"flex",gap:6,flexWrap:"wrap",marginTop:8}}>
             {h.sources.map((s,j)=>(
-              <span key={j} style={{font:"600 11px system-ui",background:"var(--bg)",padding:"3px 8px"}}>📄 {s.doc} · p. {s.page}</span>
+              <span key={j} style={{font:"600 11px system-ui",background:"var(--bg)",padding:"3px 8px"}}><i className="fa-regular fa-file" aria-hidden="true"></i> {s.doc} · p. {s.page}</span>
             ))}
           </div>
         )}
@@ -306,11 +306,11 @@ function ActivityTab({machine,interventions,docs,plans,db}) {
   useEffect(() => { db.fetchMachineComments(interventions.map(i=>i.id)).then(setComments); }, [machine.id]);
   const events = [];
   interventions.forEach(i=>{
-    events.push({at:i.reported_at, icon:i.type==="curative"?"🔴":"🛠️", label:`${ITYPE[i.type]} : ${i.title}`});
-    if (i.finished_at) events.push({at:i.finished_at, icon:"✅", label:`Clôturée : ${i.title}`});
+    events.push({at:i.reported_at, icon:i.type==="curative"?"fa-circle-exclamation":"fa-screwdriver-wrench", label:`${ITYPE[i.type]} : ${i.title}`});
+    if (i.finished_at) events.push({at:i.finished_at, icon:"fa-circle-check", label:`Clôturée : ${i.title}`});
   });
-  docs.forEach(d=>events.push({at:d.created_at, icon:"📄", label:`Document : ${d.name}`}));
-  comments.forEach(c=>events.push({at:c.created_at, icon:"💬", label:`${c.author?.full_name||"?"} : ${c.body}`}));
+  docs.forEach(d=>events.push({at:d.created_at, icon:"fa-file", label:`Document : ${d.name}`}));
+  comments.forEach(c=>events.push({at:c.created_at, icon:"fa-comment", label:`${c.author?.full_name||"?"} : ${c.body}`}));
   events.sort((a,b)=>new Date(b.at)-new Date(a.at));
   return <>
     <div className="card" style={{maxWidth:560,marginBottom:16}}>
@@ -333,7 +333,7 @@ function ActivityTab({machine,interventions,docs,plans,db}) {
     <H2>Fil d'activité</H2>
     {events.map((e,k)=>(
       <div key={k} style={{display:"flex",gap:10,padding:"8px 2px",borderBottom:"1px solid #E3E5E8",font:"500 13px system-ui",alignItems:"baseline"}}>
-        <span>{e.icon}</span>
+        <i className={"fa-solid "+e.icon} style={{width:16,textAlign:"center",color:"var(--muted)"}} aria-hidden="true"></i>
         <span style={{flex:1}}>{e.label}</span>
         <span style={{color:"var(--muted)",font:"500 12px system-ui",whiteSpace:"nowrap"}}>{e.at?.slice(0,16).replace("T"," ")}</span>
       </div>
@@ -353,7 +353,7 @@ function QRTab({machine}) {
     const img = ref.current.querySelector("img")?.src || ref.current.querySelector("canvas")?.toDataURL();
     const w = window.open("","_blank","width=400,height=520");
     w.document.write(`<div style="text-align:center;font-family:sans-serif;padding:20px">
-      <div style="font-weight:900;font-size:20px">⚠ PANNE MACHINE ?</div>
+      <div style="font-weight:900;font-size:20px">PANNE MACHINE ?</div>
       <div style="font-size:13px;margin:4px 0 14px">Scannez pour prévenir la maintenance</div>
       <img src="${img}" style="width:220px"/>
       <div style="font-weight:800;font-size:16px;margin-top:12px">${machine.code||""} — ${machine.name}</div>
@@ -366,7 +366,7 @@ function QRTab({machine}) {
       <div ref={ref} style={{display:"inline-block",padding:12,background:"#fff"}}/>
       <div style={{font:"700 14px system-ui",marginTop:8}}>{machine.code} — {machine.name}</div>
       <div style={{font:"500 11px system-ui",color:"var(--muted)",margin:"6px 0 14px",wordBreak:"break-all"}}>{url}</div>
-      <button className="btn" onClick={print}>🖨 Imprimer l'étiquette</button>
+      <button className="btn" onClick={print}><i className="fa-solid fa-print" aria-hidden="true"></i> Imprimer l'étiquette</button>
       <div style={{font:"500 11px system-ui",color:"var(--muted)",marginTop:12}}>
         À coller sur la machine. Toute personne qui scanne peut déclarer une panne, sans compte.
       </div>

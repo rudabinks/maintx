@@ -75,12 +75,12 @@ function WeeklyBrief({org,machines,interventions,preventifs,machineName,db}) {
   return (
     <div style={{background:"#fff",borderLeft:"4px solid var(--accent)",padding:"12px 16px",marginBottom:16,display:"flex",gap:12,alignItems:"center",flexWrap:"wrap"}}>
       <div style={{flex:"1 1 300px"}}>
-        <div style={{font:"700 10px system-ui",textTransform:"uppercase",letterSpacing:".1em",color:"var(--muted)"}}>📬 Brief de la semaine · {wk}</div>
+        <div style={{font:"700 10px system-ui",textTransform:"uppercase",letterSpacing:".1em",color:"var(--muted)"}}>Brief de la semaine · {wk}</div>
         {text
           ? <div style={{font:"500 13px system-ui",marginTop:4,whiteSpace:"pre-wrap"}}>{text}</div>
           : <div style={{font:"500 12px system-ui",color:"var(--muted)",marginTop:4}}>{err || "Pas encore généré cette semaine."}</div>}
       </div>
-      {text && <button className="btn sm" onClick={printReport}>🖨 PDF</button>}
+      {text && <button className="btn sm" onClick={printReport}><i className="fa-solid fa-print" aria-hidden="true"></i> PDF</button>}
       <button className="btn ghost sm" disabled={busy} onClick={gen}>{busy?"Génération…":text?"↻ Régénérer":"Générer"}</button>
     </div>
   );
@@ -94,7 +94,7 @@ function ChronicAlert({chroniques}) {
   const dismiss = () => { visible.forEach(c=>localStorage.setItem(`mx_chronic_${c.mid}_${c.n}`,"1")); force(x=>x+1); };
   return (
     <div style={{background:"#FDECEA",border:"1px solid var(--alarm)",color:"var(--alarm)",padding:"12px 16px",margin:"16px 0",font:"600 13px system-ui",display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
-      <span style={{flex:1}}>⚠ Panne récurrente : {visible.map(c=>`${c.m?.name} (${c.n} curatifs / 90 j)`).join(", ")}</span>
+      <span style={{flex:1}}><i className="fa-solid fa-triangle-exclamation" aria-hidden="true"></i> Panne récurrente : {visible.map(c=>`${c.m?.name} (${c.n} curatifs / 90 j)`).join(", ")}</span>
       <button className="btn ghost sm" style={{borderColor:"var(--alarm)",color:"var(--alarm)"}} onClick={dismiss}>Masquer</button>
     </div>
   );
@@ -108,7 +108,7 @@ function Dashboard({machines,interventions,preventifs,parts,org,kpi,machineName,
   return <>
     {kpi.pending>0 && (
       <div style={{background:"var(--accent)",padding:"12px 16px",marginBottom:16,display:"flex",alignItems:"center",gap:12,flexWrap:"wrap",cursor:"pointer"}} onClick={()=>setView({name:"interventions"})}>
-        <span style={{fontSize:20}}>🆕</span>
+        <i className="fa-solid fa-bell" style={{fontSize:18}} aria-hidden="true"></i>
         <span style={{flex:1,font:"700 14px system-ui",color:"var(--ink)"}}>
           {kpi.pending} nouvelle{kpi.pending>1?"s":""} demande{kpi.pending>1?"s":""} d'intervention à valider
         </span>
@@ -146,7 +146,7 @@ function Dashboard({machines,interventions,preventifs,parts,org,kpi,machineName,
     {degOver.length>0 && (
       <div style={{background:"#FDECEA",border:"1px solid var(--alarm)",color:"var(--alarm)",padding:"12px 16px",margin:"16px 0 0",font:"600 13px system-ui",cursor:"pointer"}}
            onClick={()=>setView({name:"machine",id:degOver[0].id})}>
-        ⏰ Mode dégradé dépassé : {degOver.map(m=>`${m.name} (à réparer avant le ${m.degraded_deadline})`).join(", ")} — planifiez la réparation.
+        <i className="fa-solid fa-clock" aria-hidden="true"></i> Mode dégradé dépassé : {degOver.map(m=>`${m.name} (à réparer avant le ${m.degraded_deadline})`).join(", ")} — planifiez la réparation.
       </div>
     )}
     <ChronicAlert chroniques={kpi.chroniques}/>

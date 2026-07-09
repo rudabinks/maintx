@@ -329,13 +329,13 @@ function App({session}) {
   if (!profile || !orgId) return <Center>Chargement…</Center>;
 
   const ITEM = {
-    dashboard:{label:"Accueil",ico:"🏠",badge:kpi.pannes,color:"var(--alarm)"},
-    interventions:{label:"Interventions",ico:"🔧",badge:kpi.ouvertes+kpi.pending,color:kpi.pending>0?"var(--accent)":"#3B4048"},
-    parc:{label:"Machines",ico:"⚙️"},
-    preventif:{label:"Préventif",ico:"🗓",badge:kpi.retard,color:"var(--alarm)"},
-    pieces:{label:"Pièces détachées",ico:"🔩",badge:kpi.lowStock,color:"var(--warn)"},
-    analyse:{label:"Analyse",ico:"📈"},
-    admin:{label:"Clients & accès",ico:"👥",badge:pendingProfiles.length,color:"var(--accent)"},
+    dashboard:{label:"Accueil",ico:"fa-gauge-high",badge:kpi.pannes,color:"var(--alarm)"},
+    interventions:{label:"Interventions",ico:"fa-screwdriver-wrench",badge:kpi.ouvertes+kpi.pending,color:kpi.pending>0?"var(--accent)":"#3B4048"},
+    parc:{label:"Machines",ico:"fa-gears"},
+    preventif:{label:"Préventif",ico:"fa-calendar-check",badge:kpi.retard,color:"var(--alarm)"},
+    pieces:{label:"Pièces détachées",ico:"fa-box",badge:kpi.lowStock,color:"var(--warn)"},
+    analyse:{label:"Analyse",ico:"fa-chart-line"},
+    admin:{label:"Clients & accès",ico:"fa-users",badge:pendingProfiles.length,color:"var(--accent)"},
   };
   const PRIMARY = ["dashboard","interventions","parc","preventif"];       // barre du bas mobile
   const SECONDARY = ["pieces","analyse",...(isSuper?["admin"]:[])]; // menu "Plus"
@@ -367,7 +367,7 @@ function App({session}) {
             const it = ITEM[k];
             return (
               <button key={k} className={"tnav"+(view.name===k?" active":"")} onClick={()=>setView({name:k})}>
-                <span>{it.ico}</span>{it.label}
+                <i className={"fa-solid "+it.ico} style={{width:16,textAlign:"center"}} aria-hidden="true"></i>{it.label}
                 {it.badge>0 && <span className="tbadge" style={{background:it.color,color:it.color==="var(--accent)"?"var(--ink)":"#fff"}}>{it.badge}</span>}
               </button>
             );
@@ -424,13 +424,13 @@ function App({session}) {
           return (
             <button key={k} className={"btab"+(view.name===k?" active":"")} onClick={()=>setView({name:k})}>
               {it.badge>0 && <span className="bdot"/>}
-              <span className="bico">{it.ico}</span>{it.label}
+              <i className={"bico fa-solid "+it.ico} aria-hidden="true"></i>{it.label}
             </button>
           );
         })}
         <button className={"btab"+(SECONDARY.includes(view.name)||navOpen?" active":"")} onClick={()=>setNavOpen(true)}>
           {SECONDARY.some(k=>ITEM[k].badge>0) && <span className="bdot"/>}
-          <span className="bico">⋯</span>Plus
+          <i className="bico fa-solid fa-ellipsis" aria-hidden="true"></i>Plus
         </button>
       </nav>
 
@@ -444,7 +444,7 @@ function App({session}) {
               return (
                 <button key={k} style={{display:"flex",alignItems:"center",gap:12,width:"100%",background:view.name===k?"var(--bg)":"transparent",border:0,padding:"13px 10px",font:"700 14px system-ui",color:"var(--ink)",cursor:"pointer",textAlign:"left"}}
                         onClick={()=>{setView({name:k});setNavOpen(false);}}>
-                  <span style={{fontSize:18}}>{it.ico}</span>{it.label}
+                  <i className={"fa-solid "+it.ico} style={{fontSize:18,width:22,textAlign:"center"}} aria-hidden="true"></i>{it.label}
                   {it.badge>0 && <span className="navbadge" style={{background:it.color||"var(--alarm)",color:it.color==="var(--accent)"?"var(--ink)":"#fff"}}>{it.badge}</span>}
                 </button>
               );

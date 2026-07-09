@@ -43,7 +43,7 @@ function ImportModal({onClose,onImport}) {
         La criticité accepte 1/2/3 ou Secondaire/Importante/Critique.
       </div>
       <label className="btn ghost sm" style={{display:"inline-block",cursor:"pointer",marginBottom:8}}>
-        📄 Choisir un fichier CSV
+        <i className="fa-regular fa-file" aria-hidden="true"></i> Choisir un fichier CSV
         <input type="file" accept=".csv,.txt,text/csv" ref={fileRef} style={{display:"none"}}
                onChange={e=>{const f=e.target.files[0]; if(f) loadFile(f); e.target.value="";}}/>
       </label>
@@ -142,7 +142,7 @@ function Analyse({machines,interventions,org,db,role}) {
   return <>
     <Toolbar>
       <H2>Analyse</H2>
-      {["manager","superadmin"].includes(role) && <button className="btn" onClick={()=>setRetro(true)}>🎉 Rétro {new Date().getFullYear()}</button>}
+      {["manager","superadmin"].includes(role) && <button className="btn" onClick={()=>setRetro(true)}>Rétro {new Date().getFullYear()}</button>}
     </Toolbar>
     {retro && <Retro org={org} machines={machines} interventions={interventions} rate={+rate||0} onClose={()=>setRetro(false)}/>}
 
@@ -218,7 +218,7 @@ function Retro({org,machines,interventions,rate,onClose}) {
     topCause ? {big:FAILCAUSE[topCause[0]]?.label, t:"cause n°1 des pannes", s:`${topCause[1]} pannes — la piste d'amélioration ${year+1}`} : null,
     downtime>0 ? {big:Math.round(downtime/60)+" h", t:"d'arrêt machine", s:`MTTR moyen : ${mttr} min`} : null,
     cost>0 ? {big:cost.toLocaleString("fr-FR")+" €", t:"de maintenance", s:"pièces + main d'œuvre"} : null,
-    {big:"MERCI", t:"à toute l'équipe", s:`Rendez-vous en ${year+1} 🔧`},
+    {big:"MERCI", t:"à toute l'équipe", s:`Rendez-vous en ${year+1}`},
   ].filter(Boolean);
   const [k,setK] = useState(0);
   useEffect(() => {

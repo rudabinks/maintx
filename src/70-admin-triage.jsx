@@ -136,14 +136,14 @@ function TriageCard({i,others,machineName,db}) {
         {i.description && <div style={{font:"500 12px system-ui",marginTop:4}}>{i.description}</div>}
       </div>
       <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
-        <button className="btn sm" onClick={()=>db.triage(i,"accepted")}>✅ Prendre en charge</button>
+        <button className="btn sm" onClick={()=>db.triage(i,"accepted")}>Prendre en charge</button>
         {others.length>0 && (
-          <Dropdown width={190} placeholder="🔗 Doublon de…" value={null}
+          <Dropdown width={190} placeholder="Doublon de…" value={null}
                     options={others.map(o=>({value:o.id,label:o.title.length>26?o.title.slice(0,26)+"…":o.title,sub:o.reported_at?.slice(0,10)}))}
                     onChange={id=>db.triageDuplicate(i,id)}/>
         )}
-        <button className="btn ghost sm" title="Pas urgent : accepté en priorité basse" onClick={()=>db.triage(i,"deferred")}>⏸ Reporter</button>
-        <button className="btn ghost sm" title="Fausse alerte" onClick={()=>db.triageReject(i)}>✕ Rejeter</button>
+        <button className="btn ghost sm" title="Pas urgent : accepté en priorité basse" onClick={()=>db.triage(i,"deferred")}>Reporter</button>
+        <button className="btn ghost sm" title="Fausse alerte" onClick={()=>db.triageReject(i)}>Rejeter</button>
       </div>
     </Row>
   );
