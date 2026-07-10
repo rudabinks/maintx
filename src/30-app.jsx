@@ -78,6 +78,20 @@ function App({session}) {
       await sb.from("interventions").insert({org_id:orgId,machine_id:f.machine,type:f.type||"preventive",priority:f.prio||2,
         title:f.title,directive:f.directive||null,assigned_to:f.assigned_to||null,scheduled_for:f.scheduled_for||null,
         reported_by:profile.id,triage:"accepted",status:"open"});
+      // Prévenir le technicien par email + agenda (best-effort : ne bloque pas si non configuré)
+      if (f.assigned_to && f.scheduled_for) {
+        try {
+          const m = machines.find(x=>x.id===f.machine);
+          const {data:{session}} = await sb.auth.getSession();
+          const res = await fetch(FN.sendplan, {
+            method:"POST",
+            headers:{"Content-Type":"application/json","Authorization":"Bearer "+session.access_token,"apikey":SUPABASE_KEY},
+            body:JSON.stringify({assigned_to:f.assigned_to, machine:m?((m.code?m.code+" ":"")+m.name):"", title:f.title, date:f.scheduled_for, directive:f.directive, org_name:org?.name}),
+          });
+          const p = await res.json().catch(()=>({}));
+          if (!res.ok || p.error) console.warn("Email planning non envoyé :", p.error||res.status);
+        } catch(e) { console.warn("Email planning indisponible", e); }
+      }
       refresh(); setModal(null);
     },
     setInterventionStatus: async (i,st) => {
