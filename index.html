@@ -632,6 +632,8 @@ function App({session}) {
     if (e1 || !p) { setError("Profil introuvable. Votre inscription a peut-être été refusée — contactez MaintX."); return; }
     setProfile(p);
     if (p.pending) return; // compte en attente : on ne charge pas l'app
+    // Le technicien atterrit direct sur les interventions (le reste reste accessible par le menu)
+    if (p.role === "technician") setView({name:"interventions"});
     const {data:o} = await sb.from("organizations").select("*").order("name");
     setOrgs(o||[]);
     setOrgId(p.org_id || (o&&o[0]?.id) || null);
