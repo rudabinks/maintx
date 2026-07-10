@@ -115,6 +115,7 @@ function IRow({i,machineName,db,full,parts}) {
           <b>{i.title}</b>
           <div style={{font:"500 12px system-ui",color:"var(--muted)",marginTop:2}}>
             {machineName(i.machine_id)} {machineName(i.machine_id)?"· ":""}{ITYPE[i.type]} · {i.reported_at?.slice(0,10)}
+            {i.scheduled_for && <span style={{color:i.scheduled_for<today()?"var(--alarm)":"var(--accent)",fontWeight:700}}> · planifié le {i.scheduled_for}</span>}
             {photos.length>0 && ` · ${photos.length} photo${photos.length>1?"s":""}`}
             {i.failure_cause && <span style={{color:FAILCAUSE[i.failure_cause]?.color,fontWeight:700}}> · {FAILCAUSE[i.failure_cause]?.label}</span>}
           </div>
@@ -253,6 +254,12 @@ function InterventionDetail({i,db,parts}) {
   const photos = i.photos || [];
   return (
     <div style={{background:"#F6F7F8",borderLeft:"4px solid #D5D8DC",padding:"12px 16px"}}>
+      {i.directive && (
+        <div style={{background:"#FFF7DB",borderLeft:"4px solid var(--accent)",padding:"10px 12px",marginBottom:10}}>
+          <div style={{font:"700 11px system-ui",textTransform:"uppercase",letterSpacing:".05em",marginBottom:4}}>Directives du responsable</div>
+          <div style={{font:"500 13px system-ui",whiteSpace:"pre-wrap"}}>{i.directive}</div>
+        </div>
+      )}
       {i.description && <div style={{font:"500 13px system-ui",whiteSpace:"pre-wrap",marginBottom:10}}>{i.description}</div>}
       {deja.length>0 && i.status!=="done" && (
         <div style={{background:"#FFF7DB",borderLeft:"4px solid var(--accent)",padding:"10px 12px",marginBottom:12}}>

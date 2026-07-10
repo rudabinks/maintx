@@ -8,9 +8,10 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 if (window.pdfjsLib) window.pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
 // URL des Edge Functions (attention : le slug est figé au déploiement, le renommage ne le change pas)
 const FN = {
-  voice:  SUPABASE_URL+"/functions/v1/voice-report",
-  brief:  SUPABASE_URL+"/functions/v1/rapid-function",
-  ask:    SUPABASE_URL+"/functions/v1/swift-api",
+  voice:     SUPABASE_URL+"/functions/v1/voice-report",
+  brief:     SUPABASE_URL+"/functions/v1/rapid-function",
+  ask:       SUPABASE_URL+"/functions/v1/swift-api",
+  directive: SUPABASE_URL+"/functions/v1/plan-directive",
   // (indexation PDF : désormais côté navigateur via pdf.js, plus d'Edge Function)
 };
 

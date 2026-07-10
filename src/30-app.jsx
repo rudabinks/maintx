@@ -15,6 +15,7 @@ function App({session}) {
   const [pendingProfiles,setPendingProfiles] = useState([]);
 
   const isSuper = profile?.role === "superadmin";
+  const canPlan = profile?.role === "manager" || isSuper; // responsable maintenance / superadmin
   const org = orgs.find(o=>o.id===orgId);
 
   const loadPending = async () => {
@@ -58,6 +59,27 @@ function App({session}) {
     },
     updateMachineMeta: async (id,meta) => { await sb.from("machines").update({meta}).eq("id",id); refresh(); },
     addIntervention: async f => { await sb.from("interventions").insert({org_id:orgId,machine_id:f.machine,type:f.type,priority:f.prio,title:f.title,reported_by:profile.id}); refresh(); setModal(null); },
+    fetchTechnicians: async () => {
+      const {data} = await sb.from("profiles").select("id,full_name,role").eq("org_id",orgId).in("role",["technician","manager"]).order("full_name");
+      return data || [];
+    },
+    generateDirective: async ({machine,title,type,notes}) => {
+      const {data:{session}} = await sb.auth.getSession();
+      const res = await fetch(FN.directive, {
+        method:"POST",
+        headers:{"Content-Type":"application/json","Authorization":"Bearer "+session.access_token,"apikey":SUPABASE_KEY},
+        body:JSON.stringify({machine,title,type,notes}),
+      });
+      const p = await res.json();
+      if (!res.ok || p.error) throw new Error(p.error||res.status);
+      return p.text;
+    },
+    planIntervention: async f => {
+      await sb.from("interventions").insert({org_id:orgId,machine_id:f.machine,type:f.type||"preventive",priority:f.prio||2,
+        title:f.title,directive:f.directive||null,assigned_to:f.assigned_to||null,scheduled_for:f.scheduled_for||null,
+        reported_by:profile.id,triage:"accepted",status:"open"});
+      refresh(); setModal(null);
+    },
     setInterventionStatus: async (i,st) => {
       const patch = {status:st};
       if (st!=="open" && !i.acked_at) patch.acked_at = new Date().toISOString();
@@ -335,12 +357,13 @@ function App({session}) {
     interventions:{label:"Interventions",ico:"fa-screwdriver-wrench",badge:kpi.ouvertes+kpi.pending,color:kpi.pending>0?"var(--accent)":"#3B4048"},
     parc:{label:"Machines",ico:"fa-gears"},
     preventif:{label:"Préventif",ico:"fa-calendar-check",badge:kpi.retard,color:"var(--alarm)"},
+    planning:{label:"Planning",ico:"fa-calendar-days"},
     pieces:{label:"Pièces détachées",ico:"fa-box",badge:kpi.lowStock,color:"var(--warn)"},
     analyse:{label:"Analyse",ico:"fa-chart-line"},
     admin:{label:"Clients & accès",ico:"fa-users",badge:pendingProfiles.length,color:"var(--accent)"},
   };
   const PRIMARY = ["dashboard","interventions","parc","preventif"];       // barre du bas mobile
-  const SECONDARY = ["pieces","analyse",...(isSuper?["admin"]:[])]; // menu "Plus"
+  const SECONDARY = [...(canPlan?["planning"]:[]),"pieces","analyse",...(isSuper?["admin"]:[])]; // menu "Plus"
   const NavBtn = k => {
     const it = ITEM[k];
     return (
@@ -351,7 +374,7 @@ function App({session}) {
     );
   };
 
-  const TOPNAV = ["dashboard","interventions","preventif","parc","pieces","analyse",...(isSuper?["admin"]:[])];
+  const TOPNAV = ["dashboard","interventions","preventif",...(canPlan?["planning"]:[]),"parc","pieces","analyse",...(isSuper?["admin"]:[])];
   return (
     <div className="layout" style={{display:"flex",flexDirection:"column",minHeight:"100vh"}}>
       <div className="mobilebar">
@@ -399,6 +422,7 @@ function App({session}) {
         {view.name==="triage" && <Triage interventions={interventions} machineName={machineName} db={db}/>}
         {view.name==="interventions" && <Interventions interventions={interventions} machineName={machineName} db={db} parts={parts} setModal={setModal} setView={setView}/>}
         {view.name==="preventif" && <Preventif preventifs={preventifs} interventions={interventions} machines={machines} machineName={machineName} db={db} setModal={setModal}/>}
+        {view.name==="planning" && canPlan && <Planning interventions={interventions} machines={machines} machineName={machineName} db={db} setModal={setModal}/>}
         {view.name==="pieces" && <Pieces parts={parts} setModal={setModal} db={db}/>}
         {view.name==="analyse" && <Analyse machines={machines} interventions={interventions} org={org} db={db} role={profile.role}/>}
         {view.name==="admin" && isSuper && <>
@@ -417,6 +441,7 @@ function App({session}) {
       {modal==="org" && <OrgModal onClose={()=>setModal(null)} onSave={db.addOrg}/>}
       {modal==="preventif" && <PreventifModal machines={machines} onClose={()=>setModal(null)} onSave={db.addPreventif}/>}
       {modal==="part" && <PartModal onClose={()=>setModal(null)} onSave={db.addPart}/>}
+      {modal==="plan" && <PlanningModal machines={machines} db={db} onClose={()=>setModal(null)}/>}
       {modal==="import" && <ImportModal onClose={()=>setModal(null)} onImport={db.importMachines}/>}
 
       {/* Barre d'onglets du bas (mobile) */}
