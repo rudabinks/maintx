@@ -11,7 +11,7 @@ const FN = {
   voice:     SUPABASE_URL+"/functions/v1/voice-report",
   brief:     SUPABASE_URL+"/functions/v1/rapid-function",
   ask:       SUPABASE_URL+"/functions/v1/swift-api",
-  directive: SUPABASE_URL+"/functions/v1/quick-processor",
+  directive: SUPABASE_URL+"/functions/v1/quick-function",
   // (indexation PDF : désormais côté navigateur via pdf.js, plus d'Edge Function)
 };
 
