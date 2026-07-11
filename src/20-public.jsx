@@ -435,12 +435,12 @@ function LegalMentionsBody() {
 
       <H>Hébergement</H>
       <p>
-        <strong>Site (pages web)</strong> — GitHub Pages, GitHub Inc.<br/>
-        88 Colin P. Kelly Jr. Street, San Francisco, CA 94107, États-Unis.
+        <strong>Toutes les données clients</strong> (comptes, machines, interventions, documents, photos) <strong>sont hébergées dans l'Union européenne</strong>, sur l'infrastructure Supabase (base de données, authentification, stockage) :<br/>
+        Supabase Inc., 970 Toa Payoh North, Singapour — serveurs situés dans l'Union européenne.
       </p>
       <p>
-        <strong>Données applicatives</strong> — Supabase (base de données, authentification, stockage).<br/>
-        Supabase Inc., 970 Toa Payoh North, Singapour — infrastructure opérée sur des serveurs situés dans l'Union européenne.
+        La diffusion des pages du site (fichiers statiques : interface et code uniquement, <strong>ne contenant aucune donnée client</strong>) est assurée par :<br/>
+        GitHub Pages — GitHub Inc., 88 Colin P. Kelly Jr. Street, San Francisco, CA 94107, États-Unis.
       </p>
 
       <H>Propriété intellectuelle</H>

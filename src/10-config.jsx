@@ -30,7 +30,7 @@ const LEGAL = {
     address: "",  // adresse pro quand l'entreprise existera
     siret: "",    // SIRET quand l'entreprise existera
     tva: "",      // n° TVA seulement si assujetti
-    email: "lilianbennetpro@gmail.com",
+    email: "contact@maintx.fr", // ⚠ nécessite la redirection e-mail créée chez OVH
     phone: "",    // optionnel
   },
 };
