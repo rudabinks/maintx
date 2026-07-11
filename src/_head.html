@@ -3,6 +3,24 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<!-- Sécurité : politique de sécurité du contenu (CSP). Restreint d'où le code/les données
+     peuvent venir. 'unsafe-eval'/'unsafe-inline' sont requis par Babel-standalone + les styles
+     inline (setup CDN sans build) ; ils disparaîtront à la migration Vite. connect-src limite
+     les connexions réseau à Supabase → empêche l'exfiltration de données vers un autre serveur. -->
+<meta http-equiv="Content-Security-Policy" content="
+  default-src 'self';
+  script-src 'self' 'unsafe-eval' 'unsafe-inline' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net;
+  style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com;
+  font-src 'self' data: https://cdnjs.cloudflare.com;
+  img-src 'self' data: blob: https://krfrzuxdymgzttkdcaab.supabase.co;
+  connect-src 'self' https://krfrzuxdymgzttkdcaab.supabase.co wss://krfrzuxdymgzttkdcaab.supabase.co;
+  worker-src 'self' blob: https://cdnjs.cloudflare.com;
+  frame-ancestors 'none';
+  base-uri 'self';
+  form-action 'self';
+  object-src 'none';
+">
+<meta name="referrer" content="strict-origin-when-cross-origin">
 <title>MaintX — GMAO</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>

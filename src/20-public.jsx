@@ -11,6 +11,9 @@ function Root() {
   if (qrMatch) return <QRPage token={qrMatch[1]}/>;
   const trackMatch = hash.match(/^#\/suivi\/([0-9a-f-]{36})/i);
   if (trackMatch) return <TrackPage token={trackMatch[1]}/>;
+  // Pages légales (RGPD) — accessibles sans compte
+  if (hash.indexOf("#/mentions-legales") === 0) return <LegalPage tab="mentions"/>;
+  if (hash.indexOf("#/confidentialite") === 0) return <LegalPage tab="privacy"/>;
   return <AuthGate/>;
 }
 
@@ -371,8 +374,132 @@ function Login() {
             <>Déjà un compte ? <a style={{color:"var(--ink)",fontWeight:700,cursor:"pointer"}} onClick={()=>{setMode("login");setErr(null);}}>Se connecter</a></>
           )}
         </div>
+        <div style={{font:"500 11px system-ui",color:"var(--muted)",marginTop:20,paddingTop:14,borderTop:"1px solid #E3E5E8",textAlign:"center"}}>
+          <a href="#/mentions-legales" style={{color:"var(--muted)"}}>Mentions légales</a>
+          <span style={{margin:"0 8px"}}>·</span>
+          <a href="#/confidentialite" style={{color:"var(--muted)"}}>Confidentialité (RGPD)</a>
+        </div>
       </div>
     </Center>
+  );
+}
+
+/* ------------------------- PAGES LÉGALES (RGPD) ------------------------- */
+function LegalPage({tab}) {
+  const back = () => { window.location.hash = ""; };
+  return (
+    <div style={{minHeight:"100vh",background:"var(--bg)"}}>
+      <div style={{background:"var(--ink)",padding:"14px 20px",display:"flex",alignItems:"center",gap:12}}>
+        <a href="#" onClick={e=>{e.preventDefault();back();}} style={{fontFamily:"var(--display)",fontSize:20,color:"#fff",textDecoration:"none"}}>
+          <span style={{color:"var(--accent)"}}>▮▮</span> MAINT<span style={{color:"var(--accent)"}}>X</span>
+        </a>
+        <a href="#" onClick={e=>{e.preventDefault();back();}} style={{marginLeft:"auto",color:"#C9CCD1",font:"600 12px system-ui",textDecoration:"none"}}>← Retour</a>
+      </div>
+      <div style={{display:"flex",gap:6,padding:"14px 20px 0",maxWidth:820,margin:"0 auto"}}>
+        <a href="#/mentions-legales" className="tab" style={{textDecoration:"none",...(tab==="mentions"?{color:"var(--ink)",borderBottom:"3px solid var(--accent)"}:{})}}>Mentions légales</a>
+        <a href="#/confidentialite" className="tab" style={{textDecoration:"none",...(tab==="privacy"?{color:"var(--ink)",borderBottom:"3px solid var(--accent)"}:{})}}>Confidentialité (RGPD)</a>
+      </div>
+      <div style={{maxWidth:820,margin:"0 auto",padding:"18px 20px 60px"}}>
+        <div className="card" style={{padding:"26px 30px",lineHeight:1.6,font:"400 14px/1.6 system-ui",color:"var(--ink)"}}>
+          {tab==="mentions" ? <LegalMentionsBody/> : <PrivacyBody/>}
+        </div>
+        <div style={{textAlign:"center",marginTop:16,font:"500 11px system-ui",color:"var(--muted)"}}>
+          Dernière mise à jour : {LEGAL.updated}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function H({children}) { return <h2 style={{font:"800 16px system-ui",textTransform:"uppercase",letterSpacing:".03em",margin:"26px 0 8px",color:"var(--ink)"}}>{children}</h2>; }
+
+function LegalMentionsBody() {
+  return (
+    <div>
+      <h1 style={{font:"800 22px system-ui",textTransform:"uppercase",margin:"0 0 6px"}}>Mentions légales</h1>
+      <p style={{color:"var(--muted)",marginTop:0}}>Conformément aux articles 6-III et 19 de la loi n° 2004-575 du 21 juin 2004 pour la confiance dans l'économie numérique (LCEN).</p>
+
+      <H>Éditeur du site</H>
+      <p>
+        Le site <strong>{LEGAL.site}</strong> est édité à titre {LEGAL.editor.statut ? "professionnel" : "personnel"} par :<br/>
+        <strong>{LEGAL.editor.name}</strong>{LEGAL.editor.statut ? " — "+LEGAL.editor.statut : ""}<br/>
+        {LEGAL.editor.address ? <>{LEGAL.editor.address}<br/></> : null}
+        {LEGAL.editor.siret ? <>SIRET : {LEGAL.editor.siret}<br/></> : null}
+        {LEGAL.editor.tva ? <>N° TVA intracommunautaire : {LEGAL.editor.tva}<br/></> : null}
+        E-mail : <a href={"mailto:"+LEGAL.editor.email}>{LEGAL.editor.email}</a>
+        {LEGAL.editor.phone ? <><br/>Téléphone : {LEGAL.editor.phone}</> : null}
+      </p>
+
+      <H>Directeur de la publication</H>
+      <p>{LEGAL.editor.name}</p>
+
+      <H>Hébergement</H>
+      <p>
+        <strong>Site (pages web)</strong> — GitHub Pages, GitHub Inc.<br/>
+        88 Colin P. Kelly Jr. Street, San Francisco, CA 94107, États-Unis.
+      </p>
+      <p>
+        <strong>Données applicatives</strong> — Supabase (base de données, authentification, stockage).<br/>
+        Supabase Inc., 970 Toa Payoh North, Singapour — infrastructure opérée sur des serveurs situés dans l'Union européenne.
+      </p>
+
+      <H>Propriété intellectuelle</H>
+      <p>L'ensemble des contenus (structure, textes, interface, logo, code) présents sur {LEGAL.site} est la propriété exclusive de l'éditeur, sauf mentions contraires. Toute reproduction sans autorisation est interdite.</p>
+
+      <H>Contact</H>
+      <p>Pour toute question : <a href={"mailto:"+LEGAL.editor.email}>{LEGAL.editor.email}</a>.</p>
+    </div>
+  );
+}
+
+function PrivacyBody() {
+  return (
+    <div>
+      <h1 style={{font:"800 22px system-ui",textTransform:"uppercase",margin:"0 0 6px"}}>Politique de confidentialité</h1>
+      <p style={{color:"var(--muted)",marginTop:0}}>Traitement des données personnelles conformément au Règlement (UE) 2016/679 (RGPD) et à la loi Informatique et Libertés.</p>
+
+      <H>1. Responsable du traitement</H>
+      <p>{LEGAL.editor.name}, éditeur de {LEGAL.site}. Contact : <a href={"mailto:"+LEGAL.editor.email}>{LEGAL.editor.email}</a>.</p>
+
+      <H>2. Données collectées</H>
+      <p>Dans le cadre de l'utilisation de la GMAO MaintX, sont traitées :</p>
+      <ul>
+        <li><strong>Compte utilisateur</strong> : nom, prénom, adresse e-mail, mot de passe (chiffré), rôle, entreprise de rattachement.</li>
+        <li><strong>Données d'exploitation</strong> : interventions, commentaires, photos, historique d'activité liés au compte.</li>
+        <li><strong>Données techniques</strong> : jeton de session (stocké dans le navigateur), horodatages de connexion.</li>
+      </ul>
+
+      <H>3. Finalités et base légale</H>
+      <ul>
+        <li>Fournir le service de GMAO (gestion de maintenance) — <em>exécution du contrat</em> (art. 6.1.b).</li>
+        <li>Authentifier et sécuriser les accès — <em>intérêt légitime</em> (art. 6.1.f).</li>
+        <li>Envoyer les notifications liées au service (ex. affectation d'intervention) — <em>exécution du contrat</em>.</li>
+      </ul>
+
+      <H>4. Destinataires et sous-traitants</H>
+      <p>Les données ne sont jamais vendues. Elles sont accessibles à l'éditeur et aux sous-traitants techniques suivants :</p>
+      <ul>
+        <li><strong>Supabase</strong> — hébergement base de données, authentification, stockage des fichiers (UE).</li>
+        <li><strong>Resend</strong> — envoi des e-mails transactionnels (notifications). Des garanties de transfert (clauses contractuelles types) s'appliquent le cas échéant.</li>
+        <li><strong>GitHub Pages</strong> — diffusion des pages web (fichiers statiques uniquement, aucune donnée personnelle applicative).</li>
+      </ul>
+
+      <H>5. Isolation des données (multi-tenant)</H>
+      <p>Chaque organisation cliente dispose d'un espace isolé. Les règles de sécurité au niveau base de données (RLS) garantissent qu'un utilisateur n'accède qu'aux données de son organisation.</p>
+
+      <H>6. Durée de conservation</H>
+      <p>Les données sont conservées pendant toute la durée de la relation contractuelle, puis supprimées ou anonymisées dans un délai de 3 ans après la fin du contrat, sauf obligation légale contraire.</p>
+
+      <H>7. Vos droits</H>
+      <p>Conformément au RGPD, vous disposez des droits d'accès, de rectification, d'effacement, de limitation, d'opposition et de portabilité de vos données. Pour les exercer : <a href={"mailto:"+LEGAL.editor.email}>{LEGAL.editor.email}</a>.</p>
+      <p>Vous pouvez introduire une réclamation auprès de la <strong>CNIL</strong> (<a href="https://www.cnil.fr" target="_blank" rel="noopener noreferrer">www.cnil.fr</a>).</p>
+
+      <H>8. Cookies et traceurs</H>
+      <p>{LEGAL.site} <strong>n'utilise aucun cookie publicitaire ni de mesure d'audience</strong>. Seul un jeton de session strictement nécessaire au fonctionnement (connexion) est stocké dans votre navigateur ; il ne requiert pas de consentement au sens de l'article 82 de la loi Informatique et Libertés.</p>
+
+      <H>9. Sécurité</H>
+      <p>Les échanges sont chiffrés (HTTPS/TLS). Les mots de passe sont stockés sous forme chiffrée. L'accès aux données est cloisonné par organisation.</p>
+    </div>
   );
 }
 

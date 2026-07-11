@@ -16,6 +16,25 @@ const FN = {
   // (indexation PDF : désormais côté navigateur via pdf.js, plus d'Edge Function)
 };
 
+// Informations légales (RGPD / mentions légales).
+// Éditeur particulier pour l'instant (pas encore d'entreprise) : la LCEN n'oblige
+// pas un non-professionnel à publier adresse/téléphone si l'hébergeur est identifié.
+// ⚠ Dès la création de l'auto-entreprise (premiers clients facturés) : remplir
+// statut, address, siret (et tva si assujetti) — les lignes s'afficheront toutes seules.
+const LEGAL = {
+  site: "maintx.fr",
+  updated: "11 juillet 2026",
+  editor: {
+    name: "Lilian Bennet",
+    statut: "",   // ex. "Entrepreneur individuel (auto-entrepreneur)" quand créée
+    address: "",  // adresse pro quand l'entreprise existera
+    siret: "",    // SIRET quand l'entreprise existera
+    tva: "",      // n° TVA seulement si assujetti
+    email: "lilianbennetpro@gmail.com",
+    phone: "",    // optionnel
+  },
+};
+
 const { useState, useEffect, useMemo, useRef } = React;
 
 const STATUS = {
