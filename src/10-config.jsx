@@ -12,7 +12,7 @@ const FN = {
   brief:     SUPABASE_URL+"/functions/v1/rapid-function",
   ask:       SUPABASE_URL+"/functions/v1/swift-api",
   directive: SUPABASE_URL+"/functions/v1/quick-function",
-  sendplan:  SUPABASE_URL+"/functions/v1/swift-task",
+  sendplan:  SUPABASE_URL+"/functions/v1/dynamic-action",
   // (indexation PDF : désormais côté navigateur via pdf.js, plus d'Edge Function)
 };
 

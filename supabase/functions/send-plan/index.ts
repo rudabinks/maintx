@@ -71,6 +71,7 @@ Deno.serve(async (req) => {
       headers: { "Authorization": "Bearer " + (Deno.env.get("RESEND_API_KEY") ?? ""), "Content-Type": "application/json" },
       body: JSON.stringify({
         from: FROM, to, subject: summary, html,
+        reply_to: "contact@maintx.fr", // les réponses des techniciens arrivent sur la boîte contact
         attachments: [{ filename: "intervention.ics", content: icsB64 }],
       }),
     });
