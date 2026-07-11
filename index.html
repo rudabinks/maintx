@@ -1219,6 +1219,12 @@ function App({session}) {
           ))}
           {orgs.length===0 && <Empty>Aucun client — créez le premier avec « + Nouveau client ».</Empty>}
         </>}
+
+        <footer style={{marginTop:36,paddingTop:14,borderTop:"1px solid #DDDFE3",textAlign:"center",font:"500 11px system-ui",color:"var(--muted)"}}>
+          <a href="#/mentions-legales" style={{color:"var(--muted)"}}>Mentions légales</a>
+          <span style={{margin:"0 8px"}}>·</span>
+          <a href="#/confidentialite" style={{color:"var(--muted)"}}>Confidentialité (RGPD)</a>
+        </footer>
        </div>
       </main>
 
