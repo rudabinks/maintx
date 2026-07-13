@@ -55,7 +55,14 @@ function PlanningModal({machines,db,onClose}) {
   const [f,setF] = useState({machine:machines[0]?.id,assigned_to:"",scheduled_for:today(),type:"preventive",title:"",notes:"",directive:""});
   const [techs,setTechs] = useState([]);
   const [gen,setGen] = useState(false);
+  const [saving,setSaving] = useState(false);
+  const busy = useRef(false); // verrou anti double-envoi
   useEffect(() => { db.fetchTechnicians().then(setTechs); }, []);
+  const submit = () => {
+    if (busy.current || !f.title || !f.machine) return;
+    busy.current = true; setSaving(true);
+    db.planIntervention(f);
+  };
   const lbl = {font:"500 12px system-ui",color:"var(--muted)",display:"block",marginBottom:4,marginTop:2};
   const generate = async () => {
     setGen(true);
@@ -89,8 +96,8 @@ function PlanningModal({machines,db,onClose}) {
         <label style={lbl}>Directives pour le technicien (modifiables)</label>
         <textarea rows={4} value={f.directive} onChange={e=>setF({...f,directive:e.target.value})}/>
       </>}
-      <button className="btn" disabled={!f.title||!f.machine} onClick={()=>db.planIntervention(f)} style={{width:"100%",marginTop:10}}>
-        Planifier
+      <button className="btn" disabled={saving||!f.title||!f.machine} onClick={submit} style={{width:"100%",marginTop:10}}>
+        {saving?"Planification…":"Planifier"}
       </button>
     </Modal>
   );
