@@ -326,6 +326,7 @@ function Login() {
     setBusy(false);
   };
   const register = async () => {
+    if (pwd.length < 8) { setErr("Le mot de passe doit faire au moins 8 caractères."); return; }
     setBusy(true); setErr(null);
     const {error} = await sb.auth.signUp({email, password:pwd,
       options:{data:{full_name:name, requested_org:company}}});
@@ -359,7 +360,7 @@ function Login() {
           <input placeholder="Nom de votre entreprise" value={company} onChange={e=>setCompany(e.target.value)} style={{marginBottom:10}}/>
         </>}
         <input placeholder="Email" value={email} onChange={e=>setEmail(e.target.value)} style={{marginBottom:10}}/>
-        <input placeholder="Mot de passe" type="password" value={pwd} onChange={e=>setPwd(e.target.value)}
+        <input placeholder={mode==="signup" ? "Mot de passe (8 caractères min.)" : "Mot de passe"} type="password" value={pwd} onChange={e=>setPwd(e.target.value)}
                onKeyDown={e=>e.key==="Enter"&&(mode==="login"?go():register())} style={{marginBottom:14}}/>
         {err && <div style={{color:"var(--alarm)",font:"600 12px system-ui",marginBottom:12}}>{err}</div>}
         {mode==="login" ? (
