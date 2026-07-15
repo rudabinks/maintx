@@ -1382,10 +1382,60 @@ function ChronicAlert({chroniques}) {
   );
 }
 
+/* --- Temps réel (plan Connect) : la passerelle FOCAS écrit machine_events
+       et le statut andon ; on re-lit les deux toutes les 10 s sans recharger
+       la page, pour que le dashboard vive tout seul. --- */
+function useLiveParc(machines) {
+  const ids = machines.map(m=>m.id).join(",");
+  const [live,setLive] = useState({statuses:null,events:[]});
+  useEffect(()=>{
+    if (!ids) { setLive({statuses:null,events:[]}); return; }
+    let stop = false;
+    const tick = async () => {
+      const idList = ids.split(",");
+      const [ms,ev] = await Promise.all([
+        sb.from("machines").select("id,status").in("id",idList),
+        sb.from("machine_events").select("machine_id,event,at,alarm_no,alarm_msg,alarm_type")
+          .in("machine_id",idList).order("at",{ascending:false}).limit(40),
+      ]);
+      if (stop || ms.error || ev.error) return;
+      setLive({statuses:Object.fromEntries(ms.data.map(r=>[r.id,r.status])), events:ev.data});
+    };
+    tick();
+    const t = setInterval(tick, 10000);
+    return ()=>{ stop=true; clearInterval(t); };
+  },[ids]);
+  return live;
+}
+
+function LiveAlarms({machines,statusOf,events,setView}) {
+  const alarms = machines.filter(m=>statusOf(m)==="alarm")
+    .map(m=>({m, e:events.find(e=>e.machine_id===m.id && e.event==="alarm")}));
+  if (!alarms.length) return null;
+  return (
+    <div style={{background:"#FDECEA",borderLeft:"4px solid var(--alarm)",padding:"10px 16px",marginBottom:16}}>
+      <div style={{font:"700 10px system-ui",textTransform:"uppercase",letterSpacing:".08em",color:"var(--alarm)",marginBottom:6}}>
+        <i className="fa-solid fa-tower-broadcast" aria-hidden="true"></i> Alarmes machines — temps réel
+      </div>
+      {alarms.map(({m,e})=>(
+        <div key={m.id} style={{display:"flex",gap:10,alignItems:"baseline",flexWrap:"wrap",padding:"4px 0",cursor:"pointer",font:"500 13px system-ui"}}
+             onClick={()=>setView({name:"machine",id:m.id})}>
+          <b>{m.name}</b>
+          {e?.alarm_type && <span style={{font:"700 11px system-ui",background:"var(--alarm)",color:"#fff",padding:"1px 7px"}}>{e.alarm_type} {e.alarm_no}</span>}
+          <span style={{flex:1}}>{e?.alarm_msg || "Panne déclarée (QR / manuel)"}</span>
+          {e && <span style={{color:"var(--muted)",font:"500 11px system-ui"}}>{new Date(e.at).toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"})}</span>}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function Dashboard({machines,interventions,preventifs,parts,org,kpi,machineName,db,setView}) {
+  const live = useLiveParc(machines);
+  const statusOf = m => (live.statuses && live.statuses[m.id]) || m.status;
   const degOver = machines.filter(m=>m.status==="degraded" && m.degraded_deadline && m.degraded_deadline<today());
   const cnt = {running:0,degraded:0,alarm:0};
-  machines.forEach(m=>{ if(m.status==="running")cnt.running++; else if(m.status==="degraded")cnt.degraded++; else if(m.status==="alarm")cnt.alarm++; });
+  machines.forEach(m=>{ const s=statusOf(m); if(s==="running")cnt.running++; else if(s==="degraded")cnt.degraded++; else if(s==="alarm")cnt.alarm++; });
   const recent = interventions.filter(i=>i.triage!=="pending").slice(0,8);
   return <>
     {kpi.pending>0 && (
@@ -1411,13 +1461,14 @@ function Dashboard({machines,interventions,preventifs,parts,org,kpi,machineName,
       <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
         {machines.length===0 && <span style={{font:"500 13px system-ui",color:"var(--muted)"}}>Aucune machine — ajoutez votre parc dans « Machines ».</span>}
         {machines.map(m=>(
-          <div key={m.id} className="andon" title={`${m.name} — ${STATUS[m.status].label}`} onClick={()=>setView({name:"machine",id:m.id})}>
-            <span className={"lamp"+(m.status==="alarm"?" blink":"")} style={{background:STATUS[m.status].color}}/>
+          <div key={m.id} className="andon" title={`${m.name} — ${STATUS[statusOf(m)].label}`} onClick={()=>setView({name:"machine",id:m.id})}>
+            <span className={"lamp"+(statusOf(m)==="alarm"?" blink":"")} style={{background:STATUS[statusOf(m)].color}}/>
             <span className="andon-code">{m.code||"—"}</span>
           </div>
         ))}
       </div>
     </div>
+    <LiveAlarms machines={machines} statusOf={statusOf} events={live.events} setView={setView}/>
     <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))",gap:12}}>
       <Kpi label="Machines en panne" value={kpi.pannes} alert={kpi.pannes>0} color="var(--alarm)"/>
       <Kpi label="Interventions ouvertes" value={kpi.ouvertes}/>
