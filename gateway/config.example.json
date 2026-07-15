@@ -1,0 +1,12 @@
+{
+  "mode": "sim",
+  "ingest_url": "https://krfrzuxdymgzttkdcaab.supabase.co/functions/v1/SLUG-A-REMPLACER",
+  "connect_key": "COLLER-ICI-LA-CONNECT_KEY-DE-L-ORGANISATION",
+  "poll_seconds": 5,
+  "alarm_min_seconds": 60,
+  "alarm_types_panne": ["SV", "SP", "OH", "MC", "OT", "PW"],
+  "machines": [
+    { "machine_id": "UUID-MACHINE-MAINTX", "name": "Mori Seiki M300L", "ip": "192.168.1.101", "port": 8193 },
+    { "machine_id": "UUID-MACHINE-MAINTX", "name": "Fraiseuse 2", "ip": "192.168.1.102", "port": 8193 }
+  ]
+}

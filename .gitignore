@@ -2,3 +2,10 @@ files.zip
 .claude/
 # Documents business (ne pas publier sur le dépôt public)
 DPA-*.docx
+# Passerelle Connect : secrets + buffer local (jamais sur le dépôt)
+gateway/config.json
+gateway/pending.jsonl
+gateway/focas.log
+gateway/*.dll
+gateway/*.so
+__pycache__/
