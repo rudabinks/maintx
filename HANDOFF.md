@@ -98,8 +98,12 @@ doc_chunks. RLS stricte par org_id (`auth_org_id()`, `is_superadmin()` en securi
   Choix : FOCAS en direct (pas l'API JITbase) pour que MaintX soit autonome et vendable partout.
   Livré : `patch-v15.sql` + Edge Function `connect-ingest` + agent `gateway/maintx_gateway.py`
   (modes sim/focas, voir `gateway/README.md`). RESTE : exécuter le patch, déployer la fonction
-  (décocher Verify JWT, noter le slug → config.json), test mode sim, puis VM entreprise
-  (demande IT en cours, validée par Arnaud Bouet) + fwlib Fanuc + IP des CN pour le réel.
+  (décocher Verify JWT, noter le slug → config.json), test mode sim.
+  ⚠️ **2026-07-15 : pilote sur l'atelier d'alternance REFUSÉ par Arnaud Bouet** (position : sujet
+  à traiter en projet GMAO groupe, pas en développement personnel — l'atelier a déjà JitBase).
+  Ne plus rien déployer ni utiliser sur site. Conséquence assumée : chercher un atelier pilote
+  dans la VRAIE cible (PME 5-50 machines sur Excel/papier, sans service info) ; le dev Connect
+  continue en mode simulation, tout reste prêt pour le premier vrai client.
 - **Conformité constructeur** (idée fondatrice) : comparer préconisations constructeur vs gammes
   réelles, écarts assumés "shuntés", score par machine.
 - **Réactiver Mécano** (code dormant), export Excel, annotation photos, sous-ensembles machine, hors-ligne.
