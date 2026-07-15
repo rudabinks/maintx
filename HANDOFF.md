@@ -14,7 +14,7 @@ industrielle (alternance Dreamtech, master ENI numérisation industrielle).
 - Mise en service (setup) sur site : ~1000 € (variable selon les technos déjà en place).
   **Offerte pour le 1er client** (son atelier d'alternance, car il apprend sur site).
 - Abonnement par atelier : **Standard ~180 €/mois** (GMAO complète) ·
-  **Connect ~300 €/mois** (+ état machines temps réel via Fabriq/FOCAS).
+  **Connect ~300 €/mois** (+ état machines temps réel via FOCAS).
 - 1 site = 1 abonnement (forfait, jamais par utilisateur).
 
 **En ligne :** https://maintx.fr · Repo : https://github.com/rudabinks/maintx (pseudo GitHub : rudabinks)
@@ -93,11 +93,13 @@ doc_chunks. RLS stricte par org_id (`auth_org_id()`, `is_superadmin()` en securi
 - **Interfaces par rôle** (grande feature) : opérateur = déclarer seulement ; directeur/planificateur
   = état machines + interventions en cours/à venir + créer des interventions futures ; maintenance
   = tout + suppression ; responsable = la page Planning (déjà faite).
-- **Intégration Fabriq / FOCAS temps réel** (plan Connect) : l'atelier de Lilian utilise **Fabriq**
-  (management d'atelier) qui a déjà l'**état machines en temps réel** + une **API REST** (Fabriq OS Pro).
-  Idée : MaintX récupère l'état via l'API Fabriq → andon/production/argent produit automatiques,
-  sans capteur. Table `machine_events` déjà prête. NÉCESSITE : accès API (offre Pro + autorisation
-  de l'entreprise). Session dédiée à faire ensemble.
+- **Plan Connect / FOCAS temps réel — pilote EN COURS (2026-07)** : les CN de l'atelier de Lilian
+  sont toutes Fanuc, en réseau, déjà lues par **JITbase** (surveillance machines) → le réseau est OK.
+  Choix : FOCAS en direct (pas l'API JITbase) pour que MaintX soit autonome et vendable partout.
+  Livré : `patch-v15.sql` + Edge Function `connect-ingest` + agent `gateway/maintx_gateway.py`
+  (modes sim/focas, voir `gateway/README.md`). RESTE : exécuter le patch, déployer la fonction
+  (décocher Verify JWT, noter le slug → config.json), test mode sim, puis VM entreprise
+  (demande IT en cours, validée par Arnaud Bouet) + fwlib Fanuc + IP des CN pour le réel.
 - **Conformité constructeur** (idée fondatrice) : comparer préconisations constructeur vs gammes
   réelles, écarts assumés "shuntés", score par machine.
 - **Réactiver Mécano** (code dormant), export Excel, annotation photos, sous-ensembles machine, hors-ligne.
